@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  # 1. Frontend (React)
+  frontend:
+    build: ./Frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./Frontend:/app  
+      - /app/node_modules
+
+  # 2. Backend (Node/Express API)
+  backend:
+    build: ./Backend
+    ports:
+      - "5000:5000"
+    depends_on:
+      - database
+
+  # 3. Database (MongoDB)
+  database:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
