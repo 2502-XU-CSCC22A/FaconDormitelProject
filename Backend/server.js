@@ -1,24 +1,15 @@
 const express = require('express');
-const bcrypt = require('bcrypt');
-const User = require('./models/User'); 
+
+// Import your routes
+const authRoutes = require('./routes/auth'); 
 
 const app = express();
+
+// MUST HAVE: This allows your server to read the JSON data sent by the tests
 app.use(express.json());
 
-app.post('/api/auth/register', async (req, res) => {
-  const { username, password, role } = req.body;
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10); 
-    const newUser = new User({ username, password: hashedPassword, role });
-    await newUser.save();
-    
-    res.status(201).json({
-      message: "User registered successfully",
-      user: { username: newUser.username, role: newUser.role }
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Server error during registration" });
-  }
-});
+// Send all /api/auth requests over to your route file
+app.use('/api/auth', authRoutes);
 
+// Export it for the testing file
 module.exports = app;
