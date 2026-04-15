@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "DormiSync Backend",
   "main": "server.js",
-  "scripts": {
-    "test": "jest"
+"scripts": {
+    "test": "jest --runInBand"
   },
   "author": "",
   "license": "ISC",
