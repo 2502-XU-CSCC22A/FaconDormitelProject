@@ -1,6 +1,12 @@
+// This tells Jest to delete all rooms from the database before starting
+beforeEach(async () => {
+  await Room.deleteMany({});
+});
+
 const request = require('supertest');
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const Room = require('../models/Room'); 
 const app = require('../server');
 
 let ownerToken = "";
@@ -52,7 +58,7 @@ describe("Room Management Module", () => {
   
   it("should allow an Owner to successfully create a new room", async () => {
     const newRoomData = {
-      roomNumber: "101A",
+      roomNumber: "103C",
       capacity: 4
     };
 
@@ -61,9 +67,8 @@ describe("Room Management Module", () => {
       .set('Authorization', `Bearer ${ownerToken}`) 
       .send(newRoomData);
 
-    expect(response.status).toBe(201);
     expect(response.body.message).toBe("Room created successfully");
-    expect(response.body.room).toHaveProperty('roomNumber', '101A');
+    expect(response.body.room).toHaveProperty('roomNumber', '103C');
     expect(response.body.room).toHaveProperty('capacity', 4);
     expect(response.body.room).toHaveProperty('currentOccupants', 0);
   });

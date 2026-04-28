@@ -1,11 +1,13 @@
-import React from 'react'
+import Login from './components/Login';
+import Register from './components/Register';
 
 function App() {
   return (
-    <div>
-      <h1>Test for Dormisync is live!</h1>
+    <div style={{ display: 'flex', justifyContent: 'center', gap: '50px', marginTop: '50px' }}>
+      <Register />
+      <Login />
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

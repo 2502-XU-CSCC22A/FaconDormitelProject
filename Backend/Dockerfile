@@ -1,4 +1,18 @@
-FROM node:20-alpine
+# Use an official Node runtime as a parent image
+FROM node:18-alpine
+
+# Set the working directory inside the container
 WORKDIR /app
+
+# Copy package.json and install dependencies
+COPY package*.json ./
+RUN npm install
+
+# Copy the rest of your backend code into the container
+COPY . .
+
+# Make port 5000 available to the outside
 EXPOSE 5000
-CMD ["node", "-e", "const http = require('http'); http.createServer((req, res) => { res.end('Express API running'); }).listen(5000, () => console.log('Backend connected to MongoDB'));"]
+
+# Command to run your real server
+CMD ["node", "server.js"]
