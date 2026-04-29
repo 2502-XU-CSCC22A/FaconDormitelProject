@@ -1,20 +1,30 @@
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
-  username: { 
-    type: String, 
-    required: true, 
-    unique: true //  block duplicate usernames later
+  email: {
+    type: String,
+    required: [true, 'Email is required'],
+    unique: true,
+    lowercase: true,        // store all emails lowercase to avoid case-duplicate accounts
+    trim: true,
+    match: [
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      'Please provide a valid email address'
+    ]
   },
-  password: { 
-    type: String, 
-    required: true 
+  password: {
+    type: String,
+    required: [true, 'Password is required']
+
   },
-  role: { 
-    type: String, 
+  role: {
+    type: String,
     required: true,
-    enum: ['owner', 'client'] // Ensures no one can type a fake role
+    enum: ['owner', 'client'],
+    default: 'client'
   }
+}, {
+  timestamps: true   // adds createdAt and updatedAt automatically
 });
 
 module.exports = mongoose.model('User', userSchema);

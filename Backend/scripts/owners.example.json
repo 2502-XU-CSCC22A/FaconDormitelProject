@@ -1,0 +1,10 @@
+[
+  {
+    "email": "owner1@dormisync.local",
+    "password": "ChangeMe1!"
+  },
+  {
+    "email": "owner2@dormisync.local",
+    "password": "ChangeMe2!"
+  }
+]
