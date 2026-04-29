@@ -4,14 +4,13 @@ const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/room'); 
 const cors = require('cors');
 
-const app = express();
-app.use(cors());
-app.use(express.json());
-
 // Connect to the Docker MongoDB database
 mongoose.connect('mongodb://database:27017/dormisync')
   .then(() => console.log('MongoDB is successfully connected!'))
   .catch((err) => console.log('Database connection error: ', err));
+const app = express();
+app.use(cors());
+app.use(express.json());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes); 
