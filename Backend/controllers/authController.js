@@ -145,5 +145,34 @@ const login = async (req, res) => {
     return res.status(500).json({ message: 'Server error during login' });
   }
 };
+// --- 3. GET CURRENT USER ---
+// Requires authMiddleware to have run first (which attaches req.user).
+const getMe = async (req, res) => {
+  try {
+    // req.user comes from the JWT payload (set by authMiddleware)
+    const user = await User.findById(req.user.userId).select('-password');
+    if (!user) {
+      // Token was valid but the account was deleted
+      return res.status(404).json({ message: 'User not found' });
+    }
 
-module.exports = { register, login };
+    return res.status(200).json({
+      user: {
+        _id: user._id,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt
+      }
+    });
+  } catch (error) {
+    console.error('Get me error:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// --- 4. LOGOUT ---
+const logout = async (req, res) => {
+  return res.status(200).json({ message: 'Logged out successfully' });
+};
+
+module.exports = { register, login, getMe, logout };

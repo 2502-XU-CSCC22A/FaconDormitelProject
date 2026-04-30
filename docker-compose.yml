@@ -17,6 +17,9 @@ services:
       - "5000:5000"
     env_file:           
       - ./Backend/.env   
+    volumes:
+      - ./Backend:/app
+      - /app/node_modules
     depends_on:
       - database-1
 
