@@ -1,13 +1,10 @@
 // src/pages/LoginPage.jsx
-import logoImage from '../assets/logo.png';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { setAuth } from '../utils/auth';
 import {
   pageStyle,
   cardStyle,
-  logoContainerStyle,
-  logoTextStyle,
-  logoAccentStyle,
   switchPromptStyle,
   switchLinkStyle,
   labelStyle,
@@ -17,6 +14,7 @@ import {
   messageStyle,
   forgotPasswordStyle
 } from '../styles/authStyles';
+import logoImage from '../assets/logo.png';
 
 function LoginPage() {
   const [email, setEmail] = useState('');
@@ -41,10 +39,9 @@ function LoginPage() {
       const data = await response.json();
 
       if (response.ok) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        setAuth(data.token, data.user);
         setMessage('Login successful!');
-        setTimeout(() => navigate('/'), 800);
+        setTimeout(() => navigate('/dashboard'), 800);
       } else {
         setMessage(data.message || 'Login failed');
       }
@@ -60,15 +57,10 @@ function LoginPage() {
     <div style={pageStyle}>
       <div style={cardStyle}>
         <img
-  src={logoImage}
-  alt="Rfacon Dormitel"
-  style={{
-    display: 'block',
-    margin: '0 auto 12px',
-    maxWidth: '260px',
-    height: 'auto'
-  }}
-/>
+          src={logoImage}
+          alt="Rfacon Dormitel"
+          style={{ display: 'block', margin: '0 auto 12px', maxWidth: '260px', height: 'auto' }}
+        />
 
         <p style={switchPromptStyle}>
           Don't have an account?{' '}
