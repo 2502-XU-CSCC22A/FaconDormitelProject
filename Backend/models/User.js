@@ -1,11 +1,16 @@
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   email: {
     type: String,
     required: [true, 'Email is required'],
     unique: true,
-    lowercase: true,        // store all emails lowercase to avoid case-duplicate accounts
+    lowercase: true,
     trim: true,
     match: [
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
@@ -14,17 +19,43 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: [true, 'Password is required']
-
+    default: null
   },
   role: {
     type: String,
     required: true,
     enum: ['owner', 'client'],
     default: 'client'
+  },
+  // Invite/onboarding flow
+  mustSetPassword: {
+    type: Boolean,
+    default: false
+  },
+  inviteToken: {
+    type: String,
+    default: null,
+    index: { sparse: true }   
+  },
+  inviteTokenExpiry: {
+    type: Date,
+    default: null
+  },
+  invitedBy: {
+  
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   }
 }, {
-  timestamps: true   // adds createdAt and updatedAt automatically
+  timestamps: true
 });
+
+// Convenience method: clears invite-related fields when password is set
+userSchema.methods.clearInvite = function() {
+  this.mustSetPassword = false;
+  this.inviteToken = null;
+  this.inviteTokenExpiry = null;
+};
 
 module.exports = mongoose.model('User', userSchema);

@@ -56,7 +56,7 @@ const seedOwners = async () => {
   let skipped = 0;
   let updated = 0;
 
-  for (const owner of owners) {
+for (const owner of owners) {
     if (!owner.email || !owner.password) {
       console.warn(`⚠️  Skipping malformed entry (missing email or password):`, owner);
       continue;
@@ -72,6 +72,10 @@ const seedOwners = async () => {
       if (RESET_FLAG) {
         existing.password = hashedPassword;
         existing.role = 'owner';
+        existing.name = (owner.name || existing.name || '').trim();
+        existing.mustSetPassword = false;
+        existing.inviteToken = null;
+        existing.inviteTokenExpiry = null;
         await existing.save();
         console.log(`🔄 Updated owner: ${email}`);
         updated++;
@@ -85,7 +89,11 @@ const seedOwners = async () => {
     await User.create({
       email,
       password: hashedPassword,
-      role: 'owner'
+      role: 'owner',
+      name: (owner.name || '').trim(),
+      mustSetPassword: false,
+      inviteToken: null,
+      inviteTokenExpiry: null
     });
     console.log(`✅ Created owner: ${email}`);
     created++;
