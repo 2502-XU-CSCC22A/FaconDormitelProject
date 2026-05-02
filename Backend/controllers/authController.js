@@ -337,5 +337,33 @@ const setPasswordWithToken = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken };
+// --- 7. LIST TENANTS (OWNER-ONLY) ---
+// Returns all client (tenant) accounts for the admin dashboard table.
+// Includes invite status so the UI can show 'Pending' vs 'Active'.
+const listTenants = async (req, res) => {
+  try {
+    const tenants = await User.find(
+      { role: 'client' },
+      // Project only the fields the UI needs — never include passwords or tokens
+      { name: 1, email: 1, mustSetPassword: 1, inviteTokenExpiry: 1, createdAt: 1 }
+    ).sort({ createdAt: -1 });
+
+    // Transform into a clean shape for the frontend
+    const formatted = tenants.map((t) => ({
+      _id: t._id,
+      name: t.name || '',
+      email: t.email,
+      status: t.mustSetPassword ? 'pending' : 'active',
+      inviteExpiresAt: t.mustSetPassword ? t.inviteTokenExpiry : null,
+      createdAt: t.createdAt
+    }));
+
+    return res.status(200).json({ tenants: formatted });
+  } catch (error) {
+    console.error('List tenants error:', error);
+    return res.status(500).json({ message: 'Server error while fetching tenants' });
+  }
+};
+
+module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants };
 

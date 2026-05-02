@@ -1,12 +1,10 @@
 // src/pages/LoginPage.jsx
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { setAuth } from '../utils/auth';
 import {
   pageStyle,
   cardStyle,
-  switchPromptStyle,
-  switchLinkStyle,
   labelStyle,
   inputStyle,
   buttonStyle,
@@ -54,18 +52,13 @@ function LoginPage() {
   };
 
   return (
-    <div style={pageStyle}>
+      <div style={pageStyle}>
       <div style={cardStyle}>
         <img
           src={logoImage}
           alt="Rfacon Dormitel"
           style={{ display: 'block', margin: '0 auto 12px', maxWidth: '260px', height: 'auto' }}
         />
-
-        <p style={switchPromptStyle}>
-          Don't have an account?{' '}
-          <Link to="/register" style={switchLinkStyle}>Sign up</Link>
-        </p>
 
         <form onSubmit={handleLogin}>
           <label style={labelStyle}>Email</label>

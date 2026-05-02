@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createTenant } = require('../controllers/authController');
+const { createTenant, listTenants } = require('../controllers/authController');
 const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
 
 // All admin routes require authentication AND owner role.
@@ -10,6 +10,7 @@ router.use(requireRole('owner'));
 
 // POST /api/admin/tenants  — create (invite) a new tenant
 router.post('/tenants', createTenant);
+router.get('/tenants', listTenants);
 
 // Future owner-only endpoints will go here as the admin dashboard grows:
 //   router.get('/tenants', listTenants);

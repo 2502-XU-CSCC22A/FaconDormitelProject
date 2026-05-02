@@ -1,18 +1,25 @@
 // src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
+import SetPasswordPage from './pages/SetPasswordPage';
 import ProtectedRoute from './components/ProtectedRoute';
+
+import AdminLayout from './components/admin/AdminLayout';
+import RoomsPage from './pages/admin/RoomsPage';
+import TenantsPage from './pages/admin/TenantsPage';
+import BillsPage from './pages/admin/BillsPage';
+import PaymentsPage from './pages/admin/PaymentsPage';
+import TenantPortalPage from './pages/admin/TenantPortalPage';
 
 function App() {
   return (
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/set-password" element={<SetPasswordPage />} />
 
-      {/* Protected routes */}
+      {/* Tenant (client) dashboard — simple page, kept as-is for now */}
       <Route
         path="/dashboard"
         element={
@@ -22,10 +29,26 @@ function App() {
         }
       />
 
-      {/* Default redirect — sends authenticated users to dashboard, others to login */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      {/* Admin (owner) panel — protected + role-gated */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute requireRole="owner">
+            <AdminLayout />
+          </ProtectedRoute>
+        }
+      >
+        {/* Default tab when visiting /admin */}
+        <Route index element={<Navigate to="tenants" replace />} />
+        <Route path="rooms" element={<RoomsPage />} />
+        <Route path="tenants" element={<TenantsPage />} />
+        <Route path="bills" element={<BillsPage />} />
+        <Route path="payments" element={<PaymentsPage />} />
+        <Route path="tenant-portal" element={<TenantPortalPage />} />
+      </Route>
 
-      {/* Catch-all for unknown routes */}
+      {/* Default and catch-all */}
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
