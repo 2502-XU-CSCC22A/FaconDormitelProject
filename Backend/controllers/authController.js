@@ -1,3 +1,4 @@
+const { sendEmail, buildInviteEmail } = require('../services/emailService');
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -242,11 +243,26 @@ const createTenant = async (req, res) => {
       });
       await user.save();
     }
-
-    // Build the invite link the owner will share with the tenant.
-    // The frontend origin comes from FRONTEND_URL in .env, falling back to localhost.
+ // Build the invite link the owner will share with the tenant.
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const inviteLink = `${frontendUrl}/set-password?token=${inviteToken}`;
+
+    let emailSent = false;
+    let emailError = null;
+    try {
+      const owner = await User.findById(req.user.userId).select('name email');
+      const { subject, html, text } = buildInviteEmail({
+        tenantName: trimmedName,
+        inviteLink,
+        ownerName: owner?.name || 'Your landlord'
+      });
+      const result = await sendEmail({ to: normalizedEmail, subject, html, text });
+      emailSent = result.success;
+      if (!result.success) emailError = result.error;
+    } catch (err) {
+      console.error('[createTenant] Email error:', err.message);
+      emailError = err.message;
+    }
 
     return res.status(201).json({
       message: 'Tenant invited successfully',
@@ -258,7 +274,9 @@ const createTenant = async (req, res) => {
         mustSetPassword: user.mustSetPassword
       },
       inviteLink,
-      inviteExpiresAt: inviteTokenExpiry
+      inviteExpiresAt: inviteTokenExpiry,
+      emailSent,
+      emailError   
     });
 
   } catch (error) {

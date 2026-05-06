@@ -261,15 +261,16 @@ function TenantsPage() {
         )}
       </div>
 
-      {/* Invite link modal */}
-      {inviteResult && (
-        <InviteLinkModal
-          tenant={inviteResult.tenant}
-          inviteLink={inviteResult.inviteLink}
-          inviteExpiresAt={inviteResult.inviteExpiresAt}
-          onClose={() => setInviteResult(null)}
-        />
-      )}
+       {inviteResult && (
+      <InviteLinkModal
+       tenant={inviteResult.tenant}
+       inviteLink={inviteResult.inviteLink}
+       inviteExpiresAt={inviteResult.inviteExpiresAt}
+       emailSent={inviteResult.emailSent}
+       emailError={inviteResult.emailError}
+      onClose={() => setInviteResult(null)}
+       />
+)}
     </div>
   );
 }
