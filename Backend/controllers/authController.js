@@ -1,4 +1,5 @@
 const { sendEmail, buildInviteEmail } = require('../services/emailService');
+const dns = require('dns').promises;
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -39,6 +40,18 @@ const validatePassword = (password) => {
   }
 
   return errors;
+};
+const hasValidMxRecord = async (email) => {
+  try {
+    const domain = email.split('@')[1];
+    if (!domain) return false;
+
+    const records = await dns.resolveMx(domain);
+    return Array.isArray(records) && records.length > 0;
+  } catch (err) {
+    // ENOTFOUND, ENODATA, etc. = no MX records or no domain
+    return false;
+  }
 };
 
 // --- 1. REGISTRATION ENGINE (TENANTS ONLY) ---
@@ -200,10 +213,19 @@ const createTenant = async (req, res) => {
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Please provide a valid email address' });
     }
-
-    const normalizedEmail = email.trim().toLowerCase();
+        // Email domain validation — does the domain actually accept mail?
+    const mxValid = await hasValidMxRecord(email);
+    if (!mxValid) {
+      return res.status(400).json({
+        message: 'This email does not exist, Enter a valid email address.'
+      });
+    }
+   // Name validation (forward-only — existing records aren't affected)
     const trimmedName = (name || '').trim();
-
+    if (!trimmedName || trimmedName.length < 2) {
+      return res.status(400).json({ message: 'Name is required (minimum 2 characters)' });
+    }
+    const normalizedEmail = email.trim().toLowerCase();
     // Look up any existing user with this email
     const existing = await User.findOne({ email: normalizedEmail });
 
@@ -217,7 +239,7 @@ const createTenant = async (req, res) => {
     if (existing) {
       // Case A: existing tenant who hasn't set a password yet → re-issue invite
       if (existing.role === 'client' && existing.mustSetPassword) {
-        existing.name = trimmedName || existing.name;
+        existing.name = trimmedName;
         existing.inviteToken = inviteToken;
         existing.inviteTokenExpiry = inviteTokenExpiry;
         existing.invitedBy = req.user.userId;

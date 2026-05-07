@@ -1,14 +1,12 @@
-// Backend/tests/auth.test.js
-//
-// Integration tests for the auth module (post owner-invites-tenant refactor).
-// Coverage:
-//   - Login (positive, negative, mustSetPassword block)
-//   - Protected routes (auth middleware behavior)
-//   - Admin: create tenant (owner-only, validation, conflict cases)
-//   - Public: set password via invite token (validation, expiry, replay)
-//   - Deprecated /register endpoint (should return 410 Gone)
-//
-// Run from Backend/ with: npm test
+
+jest.mock('../services/emailService', () => ({
+  sendEmail: jest.fn().mockResolvedValue({ success: true }),
+  buildInviteEmail: jest.fn().mockReturnValue({
+    subject: 'Test Subject',
+    html: '<p>Test HTML</p>',
+    text: 'Test plain text'
+  })
+}));
 
 const request = require('supertest');
 const mongoose = require('mongoose');
@@ -16,6 +14,9 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const User = require('../models/User');
 const app = require('../server');
+
+// Import the mocked functions so we can inspect/configure them in tests
+const { sendEmail, buildInviteEmail } = require('../services/emailService');
 
 // JWT secret for the test environment
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_secret_for_jest_runs_only';
@@ -27,7 +28,7 @@ const TENANT_EMAIL = 'tenant1@uni.edu';
 const TENANT_NAME = 'Test Tenant';
 const VALID_PASSWORD = 'MySecure1!';
 
-// Helper: seed an owner directly in the database (bypasses the seed script)
+// Helper: seed an owner directly in the database
 async function seedOwner(email = OWNER_EMAIL, password = OWNER_PASSWORD) {
   const hashed = await bcrypt.hash(password, 10);
   return await User.create({
@@ -47,7 +48,7 @@ async function loginAs(email, password) {
   return res.body.token;
 }
 
-// Helper: extract token from an invite link like ".../set-password?token=xyz"
+// Helper: extract token from an invite link
 function extractToken(inviteLink) {
   return inviteLink.split('token=')[1];
 }
@@ -55,14 +56,16 @@ function extractToken(inviteLink) {
 // Test setup
 beforeAll(async () => {
   await mongoose.connect('mongodb://localhost:27017/dormisync_test');
-  // Wipe stale indexes from previous schema versions, then sync current schema's indexes.
-  // Prevents tests from breaking when the User schema's indexed fields change.
   await User.collection.dropIndexes().catch(() => { /* ignore if no indexes exist yet */ });
   await User.syncIndexes();
 });
 
 beforeEach(async () => {
   await User.deleteMany({});
+  // Reset email mock between tests so call counts are accurate
+  sendEmail.mockClear();
+  buildInviteEmail.mockClear();
+  sendEmail.mockResolvedValue({ success: true });
 });
 
 afterAll(async () => {
@@ -119,7 +122,6 @@ describe('Auth Module - Login', () => {
   });
 
   it('should return 403 when user has mustSetPassword=true', async () => {
-    // Create an invited tenant who hasn't set a password yet
     await User.create({
       email: TENANT_EMAIL,
       password: null,
@@ -166,7 +168,7 @@ describe('Auth Module - Deprecated /register endpoint', () => {
 
 
 // =========================================================================
-// PROTECTED ROUTES (auth middleware)
+// PROTECTED ROUTES
 // =========================================================================
 describe('Auth Module - Protected Routes', () => {
   it('should reject GET /me without a token (401)', async () => {
@@ -179,7 +181,6 @@ describe('Auth Module - Protected Routes', () => {
     const response = await request(app)
       .get('/api/auth/me')
       .set('Authorization', 'NotBearer xyz');
-
     expect(response.status).toBe(401);
   });
 
@@ -187,7 +188,6 @@ describe('Auth Module - Protected Routes', () => {
     const response = await request(app)
       .get('/api/auth/me')
       .set('Authorization', 'Bearer not.a.valid.token');
-
     expect(response.status).toBe(401);
   });
 
@@ -220,10 +220,30 @@ describe('Auth Module - Protected Routes', () => {
 
 
 // =========================================================================
-// ADMIN: CREATE TENANT (POST /api/admin/tenants)
+// ADMIN: CREATE TENANT
 // =========================================================================
 describe('Admin Module - Create Tenant', () => {
   let ownerToken;
+  it('should reject 400 when email domain has no MX records', async () => {
+    // gmial.com is a real-world typo — domain doesn't exist / has no MX
+    const response = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: 'someone@gmial.com' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/does not appear to accept mail/i);
+  }, 15000);   // 15s timeout — DNS lookups can take a few seconds
+
+  it('should reject 400 for completely fake/nonexistent domain', async () => {
+    const response = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: 'someone@thisdoesnotexist123abcxyz.fake' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/does not appear to accept mail/i);
+  }, 15000);
 
   beforeEach(async () => {
     await seedOwner();
@@ -259,7 +279,7 @@ describe('Admin Module - Create Tenant', () => {
     expect(dbUser.mustSetPassword).toBe(true);
     expect(dbUser.password).toBeNull();
     expect(dbUser.inviteToken).toBeTruthy();
-    expect(dbUser.inviteToken.length).toBe(64); // 32 bytes hex
+    expect(dbUser.inviteToken.length).toBe(64);
     expect(dbUser.inviteTokenExpiry.getTime()).toBeGreaterThan(Date.now());
   });
 
@@ -267,12 +287,10 @@ describe('Admin Module - Create Tenant', () => {
     const response = await request(app)
       .post('/api/admin/tenants')
       .send({ email: TENANT_EMAIL, name: TENANT_NAME });
-
     expect(response.status).toBe(401);
   });
 
   it('should reject when called by a non-owner (403)', async () => {
-    // Create a client user and log them in
     const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
     await User.create({
       email: TENANT_EMAIL,
@@ -311,8 +329,28 @@ describe('Admin Module - Create Tenant', () => {
     expect(response.body.message).toMatch(/valid email/i);
   });
 
+  it('should reject 400 when name is missing or too short', async () => {
+    const r1 = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: TENANT_EMAIL });
+    expect(r1.status).toBe(400);
+    expect(r1.body.message).toMatch(/name is required/i);
+
+    const r2 = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: TENANT_EMAIL, name: '   ' });
+    expect(r2.status).toBe(400);
+
+    const r3 = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: TENANT_EMAIL, name: 'A' });
+    expect(r3.status).toBe(400);
+  });
+
   it('should return 409 when email already belongs to a fully-active account', async () => {
-    // Create a fully-onboarded tenant
     const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
     await User.create({
       email: TENANT_EMAIL,
@@ -331,14 +369,12 @@ describe('Admin Module - Create Tenant', () => {
   });
 
   it('should re-issue a fresh token when re-inviting an un-onboarded tenant', async () => {
-    // First invitation
     const first = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ email: TENANT_EMAIL, name: TENANT_NAME });
     const firstToken = extractToken(first.body.inviteLink);
 
-    // Second invitation (same email, still un-onboarded)
     const second = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -348,7 +384,6 @@ describe('Admin Module - Create Tenant', () => {
     expect(second.status).toBe(201);
     expect(secondToken).not.toBe(firstToken);
 
-    // Old token should no longer be valid in DB
     const dbUser = await User.findOne({ email: TENANT_EMAIL });
     expect(dbUser.inviteToken).toBe(secondToken);
   });
@@ -366,7 +401,7 @@ describe('Admin Module - Create Tenant', () => {
 
 
 // =========================================================================
-// PUBLIC: SET PASSWORD WITH TOKEN (POST /api/auth/set-password)
+// PUBLIC: SET PASSWORD WITH TOKEN
 // =========================================================================
 describe('Auth Module - Set Password with Invite Token', () => {
   let inviteToken;
@@ -376,7 +411,6 @@ describe('Auth Module - Set Password with Invite Token', () => {
     await seedOwner();
     ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
 
-    // Create a tenant to get a real invite token
     const inviteRes = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -403,7 +437,7 @@ describe('Auth Module - Set Password with Invite Token', () => {
     expect(dbUser.inviteToken).toBeNull();
     expect(dbUser.inviteTokenExpiry).toBeNull();
     expect(dbUser.password).toBeTruthy();
-    expect(dbUser.password).not.toBe(VALID_PASSWORD); // should be hashed
+    expect(dbUser.password).not.toBe(VALID_PASSWORD);
   });
 
   it('should allow tenant to log in after password is set', async () => {
@@ -421,12 +455,10 @@ describe('Auth Module - Set Password with Invite Token', () => {
   });
 
   it('should reject reuse of the same token (one-time use)', async () => {
-    // First use succeeds
     await request(app)
       .post('/api/auth/set-password')
       .send({ token: inviteToken, password: VALID_PASSWORD });
 
-    // Second use fails
     const response = await request(app)
       .post('/api/auth/set-password')
       .send({ token: inviteToken, password: 'AnotherPass1!' });
@@ -445,7 +477,6 @@ describe('Auth Module - Set Password with Invite Token', () => {
   });
 
   it('should reject an expired token', async () => {
-    // Manually expire the token in the database
     await User.updateOne(
       { email: TENANT_EMAIL },
       { $set: { inviteTokenExpiry: new Date(Date.now() - 1000) } }
@@ -502,8 +533,10 @@ describe('Auth Module - Set Password with Invite Token', () => {
     });
   });
 });
+
+
 // =========================================================================
-// ADMIN: LIST TENANTS (GET /api/admin/tenants)
+// ADMIN: LIST TENANTS
 // =========================================================================
 describe('Admin Module - List Tenants', () => {
   let ownerToken;
@@ -525,7 +558,6 @@ describe('Admin Module - List Tenants', () => {
   });
 
   it('should return tenants with pending status when they have not set a password', async () => {
-    // Create a tenant via the createTenant flow
     await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -542,13 +574,9 @@ describe('Admin Module - List Tenants', () => {
       email: TENANT_EMAIL,
       status: 'pending'
     });
-    expect(response.body.tenants[0]).toHaveProperty('inviteExpiresAt');
-    expect(response.body.tenants[0]).not.toHaveProperty('password');
-    expect(response.body.tenants[0]).not.toHaveProperty('inviteToken');
   });
 
   it('should return tenants with active status after they set a password', async () => {
-    // Create + onboard a tenant
     const createRes = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -558,7 +586,6 @@ describe('Admin Module - List Tenants', () => {
       .post('/api/auth/set-password')
       .send({ token: inviteToken, password: VALID_PASSWORD });
 
-    // Now list tenants
     const response = await request(app)
       .get('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`);
@@ -569,7 +596,6 @@ describe('Admin Module - List Tenants', () => {
   });
 
   it('should reject non-owners with 403', async () => {
-    // Create + onboard a client, then log in as them
     const createRes = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)

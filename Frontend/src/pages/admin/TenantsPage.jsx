@@ -69,7 +69,8 @@ function TenantsPage() {
     setIsFormOpen(false);
   };
 
-  const canSubmit = isValidEmail(formEmail) && !isSubmitting;
+  const trimmedName = formName.trim();
+  const canSubmit = trimmedName.length >= 2 && isValidEmail(formEmail) && !isSubmitting;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -143,13 +144,15 @@ function TenantsPage() {
                 Name
               </label>
               <input
-                id="t-name"
+                 id="t-name"
                 type="text"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                placeholder="Full name"
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-orange"
-              />
+                placeholder="Full name (minimum 2 characters)"
+                required
+                 minLength={2}
+                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-orange"
+                 />
             </div>
 
             <div className="mb-3">
