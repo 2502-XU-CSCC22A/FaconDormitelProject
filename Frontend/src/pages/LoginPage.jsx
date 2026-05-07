@@ -17,10 +17,35 @@ import logoImage from '../assets/logo.png';
 function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
+
+  const passwordWrapperStyle = {
+    position: 'relative',
+    marginBottom: '8px'
+  };
+
+  const passwordInputStyle = {
+    ...inputStyle,
+    paddingRight: '60px'
+  };
+
+  const toggleButtonStyle = {
+    position: 'absolute',
+    right: '12px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    background: 'transparent',
+    border: 'none',
+    color: '#666',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    padding: '4px 8px'
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -39,7 +64,8 @@ function LoginPage() {
       if (response.ok) {
         setAuth(data.token, data.user);
         setMessage('Login successful!');
-        setTimeout(() => navigate('/dashboard'), 800);
+        const destination = data.user.role === 'owner' ? '/admin/tenants' : '/dashboard';
+        setTimeout(() => navigate(destination), 800);
       } else {
         setMessage(data.message || 'Login failed');
       }
@@ -52,7 +78,7 @@ function LoginPage() {
   };
 
   return (
-      <div style={pageStyle}>
+    <div style={pageStyle}>
       <div style={cardStyle}>
         <img
           src={logoImage}
@@ -71,13 +97,23 @@ function LoginPage() {
           />
 
           <label style={labelStyle}>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={inputStyle}
-          />
+          <div style={passwordWrapperStyle}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={passwordInputStyle}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              style={toggleButtonStyle}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </div>
 
           <a href="#" style={forgotPasswordStyle} onClick={(e) => e.preventDefault()}>
             Forgot Password?

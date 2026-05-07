@@ -20,13 +20,17 @@ function SetPasswordPage() {
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Only flips true when the user clicks Set Password with mismatched values.
+  const [showMismatchError, setShowMismatchError] = useState(false);
+
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
 
-  // If no token at all, show a clear error right away
   useEffect(() => {
     if (!token) {
       setIsError(true);
@@ -35,10 +39,44 @@ function SetPasswordPage() {
   }, [token]);
 
   const passwordsMatch = password.length > 0 && password === confirmPassword;
-  const canSubmit = !!token && isPasswordValid(password) && passwordsMatch && !isSubmitting;
+
+  // Don't gate on passwordsMatch — let the user click Submit and SEE the error
+  const canSubmit =
+    !!token && isPasswordValid(password) && confirmPassword.length > 0 && !isSubmitting;
+
+  const passwordWrapperStyle = {
+    position: 'relative',
+    marginBottom: '8px'
+  };
+
+  const passwordInputStyle = {
+    ...inputStyle,
+    paddingRight: '60px'
+  };
+
+  const toggleButtonStyle = {
+    position: 'absolute',
+    right: '12px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    background: 'transparent',
+    border: 'none',
+    color: '#666',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    padding: '4px 8px'
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!passwordsMatch) {
+      setShowMismatchError(true);
+      return;
+    }
+
+    setShowMismatchError(false);
     setMessage('');
     setIsError(false);
     setIsSubmitting(true);
@@ -88,13 +126,23 @@ function SetPasswordPage() {
         {token ? (
           <form onSubmit={handleSubmit}>
             <label style={labelStyle}>New Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              style={inputStyle}
-            />
+            <div style={passwordWrapperStyle}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                style={passwordInputStyle}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                style={toggleButtonStyle}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
 
             <PasswordChecklist password={password} />
 
@@ -102,11 +150,14 @@ function SetPasswordPage() {
             <input
               type="password"
               value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                if (showMismatchError) setShowMismatchError(false);
+              }}
               required
               style={inputStyle}
             />
-            {confirmPassword.length > 0 && !passwordsMatch && (
+            {showMismatchError && (
               <p style={{ color: '#c00', fontSize: '13px', marginTop: '-4px' }}>
                 Passwords don't match.
               </p>

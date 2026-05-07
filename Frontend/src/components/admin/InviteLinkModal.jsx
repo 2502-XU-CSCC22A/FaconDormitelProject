@@ -97,7 +97,7 @@ function formatExpiry(isoString) {
   });
 }
 
-function InviteLinkModal({ tenant, inviteLink, inviteExpiresAt, onClose }) {
+function InviteLinkModal({ tenant, inviteLink, inviteExpiresAt, emailSent, emailError, onClose }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -117,32 +117,39 @@ function InviteLinkModal({ tenant, inviteLink, inviteExpiresAt, onClose }) {
     <div style={overlayStyle} onClick={onClose}>
       <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
         <h3 style={headingStyle}> Tenant invited</h3>
-        <p style={subtextStyle}>
-          {tenant.name ? `${tenant.name} (${tenant.email})` : tenant.email} has been added.
-          Share this invite link so they can set their password:
-        </p>
+<p style={subtextStyle}>
+  {tenant.name ? `${tenant.name} (${tenant.email})` : tenant.email} has been added.
+</p>
 
-        <div style={linkBoxStyle}>
-          <input
-            id="invite-link-input"
-            type="text"
-            readOnly
-            value={inviteLink}
-            style={linkInputStyle}
-            onFocus={(e) => e.target.select()}
-          />
-          <button
-            type="button"
-            onClick={handleCopy}
-            style={copied ? copiedButtonStyle : copyButtonStyle}
-          >
-            {copied ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
+{emailSent ? (
+  <div style={{
+    background: '#e7f5ee',
+    border: '1px solid #a8d5b9',
+    borderRadius: '6px',
+    padding: '10px 12px',
+    fontSize: '13px',
+    color: '#1d6e3a',
+    marginBottom: '16px'
+  }}>
+    ✓ Invite email sent to <strong>{tenant.email}</strong>. They'll receive the link directly.
+  </div>
+) : (
+  <div style={{
+    background: '#fdf3e7',
+    border: '1px solid #f0c789',
+    borderRadius: '6px',
+    padding: '10px 12px',
+    fontSize: '13px',
+    color: '#8a4d10',
+    marginBottom: '16px'
+  }}>
+    ⚠ Email could not be sent automatically. Please copy the link below and share it manually.
+  </div>
+)}
 
-        <p style={expiryStyle}>
-           This link expires on <strong>{formatExpiry(inviteExpiresAt)}</strong> (7 days from now).
-        </p>
+<p style={{ ...subtextStyle, marginBottom: '8px' }}>
+  Invite link (also sent to their email):
+</p>
 
         <button type="button" onClick={onClose} style={closeButtonStyle}>
           Done
