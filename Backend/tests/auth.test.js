@@ -7,6 +7,23 @@ jest.mock('../services/emailService', () => ({
     text: 'Test plain text'
   })
 }));
+// Mock DNS so tests don't depend on network reachability.
+// hasValidMxRecord uses dns.resolveMx — intercept that to return predictable results.
+jest.mock('dns', () => ({
+  promises: {
+    resolveMx: jest.fn(async (domain) => {
+      // Domains that should fail MX validation in tests
+      const invalidDomains = ['gmial.com', 'thisdoesnotexist123abcxyz.fake'];
+      if (invalidDomains.includes(domain)) {
+        const err = new Error('ENOTFOUND');
+        err.code = 'ENOTFOUND';
+        throw err;
+      }
+      // Everything else (gmail.com, uni.edu, etc.) returns valid MX records
+      return [{ exchange: `mx.${domain}`, priority: 10 }];
+    })
+  }
+}));
 
 const request = require('supertest');
 const mongoose = require('mongoose');
@@ -24,7 +41,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_secret_for_jest_runs_on
 // Shared fixtures
 const OWNER_EMAIL = 'owner@dormisync.local';
 const OWNER_PASSWORD = 'OwnerStrong1!';
-const TENANT_EMAIL = 'tenant1@uni.edu';
+const TENANT_EMAIL = 'tenant1@gmail.com';
 const TENANT_NAME = 'Test Tenant';
 const VALID_PASSWORD = 'MySecure1!';
 

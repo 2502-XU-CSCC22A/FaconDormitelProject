@@ -213,11 +213,11 @@ const createTenant = async (req, res) => {
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Please provide a valid email address' });
     }
-        // Email domain validation — does the domain actually accept mail?
+    // Email domain validation — does the domain actually accept mail?
     const mxValid = await hasValidMxRecord(email);
     if (!mxValid) {
       return res.status(400).json({
-        message: 'This email does not exist, Enter a valid email address.'
+        message: 'This email domain does not appear to accept mail. Please check for typos.'
       });
     }
    // Name validation (forward-only — existing records aren't affected)

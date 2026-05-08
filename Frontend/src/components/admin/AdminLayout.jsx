@@ -26,7 +26,7 @@ function AdminLayout() {
       <header className="bg-white border-b-2 border-brand-orange">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={logoImage} alt="Racon Dormitel" className="h-10 w-auto" />
+            <img src={logoImage} alt="RFacon Dormitel" className="h-10 w-auto" />
             <div>
               <h1 className="font-bold text-lg leading-tight">Dormitel Admin Panel</h1>
               <p className="text-xs text-gray-500">Room & Billing Management System</p>
@@ -71,7 +71,7 @@ function AdminLayout() {
 
       {/* ── Footer ────────────────────────────────────── */}
       <footer className="text-center text-xs text-gray-500 py-6">
-        <p>Racon Dormitel Admin Panel © 2026</p>
+        <p>RFacon Dormitel Admin Panel © 2026</p>
         <p>Built with React & Tailwind CSS</p>
       </footer>
     </div>

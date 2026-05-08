@@ -42,10 +42,15 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   invitedBy: {
-  
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     default: null
+  },
+  roomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Room',
+    default: null,
+    index: { sparse: true }
   }
 }, {
   timestamps: true

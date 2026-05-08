@@ -34,9 +34,9 @@ function DashboardPage() {
       <header className="bg-white border-b-2 border-brand-orange">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={logoImage} alt="Racon Dormitel" className="h-10 w-auto" />
+            <img src={logoImage} alt="RFacon Dormitel" className="h-10 w-auto" />
             <div>
-              <h1 className="font-bold text-lg leading-tight">Racon Dormitel</h1>
+              <h1 className="font-bold text-lg leading-tight">RFacon Dormitel</h1>
               <p className="text-xs text-gray-500">Tenant Portal</p>
             </div>
           </div>
@@ -78,7 +78,7 @@ function DashboardPage() {
 
       {/* Footer */}
       <footer className="text-center text-xs text-gray-500 py-6">
-        <p>Racon Dormitel © 2026</p>
+        <p>RFacon Dormitel © 2026</p>
         <p>Built with React & Tailwind CSS</p>
       </footer>
     </div>

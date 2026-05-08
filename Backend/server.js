@@ -2,9 +2,10 @@ require('dotenv').config();
 
 const express = require('express');
 const mongoose = require('mongoose');
-const authRoutes = require('./routes/auth'); 
-const roomRoutes = require('./routes/room'); 
+const authRoutes = require('./routes/auth');
+const roomRoutes = require('./routes/room');
 const adminRoutes = require('./routes/admin');
+const meRoutes = require('./routes/me');
 const cors = require('cors');
 
 // Connect to the Docker MongoDB database
@@ -18,8 +19,9 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);
-app.use('/api/rooms', roomRoutes); 
+app.use('/api/rooms', roomRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/me', meRoutes);
 
 
 if (process.env.NODE_ENV !== 'test') {
