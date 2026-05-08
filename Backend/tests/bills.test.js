@@ -83,6 +83,65 @@ afterAll(async () => {
 // =========================================================================
 describe('Bills Module - createBill', () => {
   let ownerToken, room;
+  it('should accept flatFee override from request body', async () => {
+    const response = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        roomId: room._id.toString(),
+        billingMonth: '2026-08',
+        flatFee: 8500,   // override default
+        electricity: { previousReading: 0, currentReading: 100 }
+      });
+    
+    expect(response.status).toBe(201);
+    expect(response.body.bill.flatFee).toBe(8500);
+  });
+
+  it('should accept electricity.ratePerKwh override from request body', async () => {
+    const response = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        roomId: room._id.toString(),
+        billingMonth: '2026-09',
+        electricity: { previousReading: 0, currentReading: 100, ratePerKwh: 16 }   // override
+      });
+    
+    expect(response.status).toBe(201);
+    expect(response.body.bill.electricity.ratePerKwh).toBe(16);
+    // 100 kWh × 16 = 1600
+    expect(response.body.bill.electricity.amount).toBe(1600);
+  });
+
+  it('should reject 400 when flatFee override is negative', async () => {
+    const response = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        roomId: room._id.toString(),
+        billingMonth: '2026-10',
+        flatFee: -100,
+        electricity: { previousReading: 0, currentReading: 100 }
+      });
+    
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/flatFee/i);
+  });
+
+  it('should reject 400 when ratePerKwh override is not a number', async () => {
+    const response = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        roomId: room._id.toString(),
+        billingMonth: '2026-11',
+        electricity: { previousReading: 0, currentReading: 100, ratePerKwh: 'fifteen' }
+      });
+    
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/ratePerKwh/i);
+  });
 
   beforeEach(async () => {
     await seedOwner();
@@ -511,3 +570,4 @@ describe('Bills Module - snapshot integrity', () => {
     expect(share.tenantName).toBeTruthy();
   });
 });
+

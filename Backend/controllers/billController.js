@@ -23,18 +23,21 @@ function addOverdueFlag(bill, now) {
   return result;
 }
 
-// --- 1. CREATE BILL (owner only) ---
 const createBill = async (req, res) => {
   try {
-    const { roomId, billingMonth, electricity } = req.body;
+    const { roomId, billingMonth, electricity, flatFee: flatFeeOverride, dueDate: dueDateOverride } = req.body;
     const ownerId = req.user.userId;
-
     if (!roomId || !billingMonth || !electricity) {
       return res.status(400).json({ message: 'roomId, billingMonth, and electricity are required' });
     }
-
     if (!BILLING_MONTH_RE.test(billingMonth)) {
       return res.status(400).json({ message: 'billingMonth must be in YYYY-MM format' });
+    }
+    if (flatFeeOverride !== undefined && (typeof flatFeeOverride !== 'number' || flatFeeOverride < 0)) {
+      return res.status(400).json({ message: 'flatFee must be a non-negative number' });
+    }
+    if (electricity.ratePerKwh !== undefined && (typeof electricity.ratePerKwh !== 'number' || electricity.ratePerKwh < 0)) {
+      return res.status(400).json({ message: 'electricity.ratePerKwh must be a non-negative number' });
     }
 
     const { currentReading } = electricity;
@@ -69,14 +72,22 @@ const createBill = async (req, res) => {
       return res.status(400).json({ message: 'Cannot bill a room with no occupants' });
     }
 
-    const flatFee = DEFAULT_FLAT_FEE;
-    const ratePerKwh = DEFAULT_ELECTRICITY_RATE;
+    const flatFee = flatFeeOverride !== undefined ? flatFeeOverride : DEFAULT_FLAT_FEE;
+    const ratePerKwh = electricity.ratePerKwh !== undefined ? electricity.ratePerKwh : DEFAULT_ELECTRICITY_RATE;
     const electricityAmount = (currentReading - previousReading) * ratePerKwh;
     const totalAmount = flatFee + electricityAmount;
     const shareAmount = totalAmount / occupants.length;
 
-    const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + DEFAULT_DUE_DAYS_FROM_CREATION);
+    let dueDate;
+    if (dueDateOverride) {
+      dueDate = new Date(dueDateOverride);
+      if (isNaN(dueDate.getTime())) {
+        return res.status(400).json({ message: 'dueDate is invalid' });
+      }
+    } else {
+      dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + DEFAULT_DUE_DAYS_FROM_CREATION);
+    }dueDate.setDate(dueDate.getDate() + DEFAULT_DUE_DAYS_FROM_CREATION);
 
     const shares = occupants.map((t) => ({
       tenantId: t._id,
