@@ -1,10 +1,10 @@
 require('dotenv').config();
-
 const express = require('express');
 const mongoose = require('mongoose');
-const authRoutes = require('./routes/auth'); 
-const roomRoutes = require('./routes/room'); 
+const authRoutes  = require('./routes/auth');
+const roomRoutes  = require('./routes/room');
 const adminRoutes = require('./routes/admin');
+const billRoutes  = require('./routes/bills');   // ← PAYMENT BRANCH ADDITION
 const cors = require('cors');
 
 // Connect to the Docker MongoDB database
@@ -13,14 +13,15 @@ if (process.env.NODE_ENV !== 'test') {
     .then(() => console.log('MongoDB is successfully connected!'))
     .catch(err => console.log('Database connection error: ', err));
 }
+
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/auth', authRoutes);
-app.use('/api/rooms', roomRoutes); 
+app.use('/api/auth',  authRoutes);
+app.use('/api/rooms', roomRoutes);
 app.use('/api/admin', adminRoutes);
-
+app.use('/api/bills', billRoutes);   // ← PAYMENT BRANCH ADDITION
 
 if (process.env.NODE_ENV !== 'test') {
   const PORT = process.env.PORT || 5000;
