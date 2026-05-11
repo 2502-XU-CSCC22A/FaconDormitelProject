@@ -1,9 +1,11 @@
 const { sendEmail, buildInviteEmail } = require('../services/emailService');
 const dns = require('dns').promises;
 const User = require('../models/User');
+const Bill = require('../models/Bill');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 // --- VALIDATION HELPERS ---
 
@@ -213,11 +215,11 @@ const createTenant = async (req, res) => {
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Please provide a valid email address' });
     }
-        // Email domain validation — does the domain actually accept mail?
+    // Email domain validation — does the domain actually accept mail?
     const mxValid = await hasValidMxRecord(email);
     if (!mxValid) {
       return res.status(400).json({
-        message: 'This email does not exist, Enter a valid email address.'
+        message: 'This email domain does not appear to accept mail. Please check for typos.'
       });
     }
    // Name validation (forward-only — existing records aren't affected)
@@ -405,5 +407,58 @@ const listTenants = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants };
+// --- 8. DELETE TENANT (OWNER-ONLY) ---
+// Hard-deletes a tenant account after verifying no pending bill shares exist.
+// Bills that already reference the tenant are preserved (frozen snapshot design).
+const deleteTenant = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({ message: 'Tenant not found' });
+    }
+
+    const tenant = await User.findById(id);
+    if (!tenant || tenant.role !== 'client') {
+      return res.status(404).json({ message: 'Tenant not found' });
+    }
+
+    // Check for pending bill shares before deleting
+    const billsWithUnpaid = await Bill.find({
+      shares: { $elemMatch: { tenantId: new mongoose.Types.ObjectId(id), status: 'pending' } }
+    });
+
+    let unpaidCount = 0;
+    let unpaidTotal = 0;
+    for (const bill of billsWithUnpaid) {
+      for (const share of bill.shares) {
+        if (share.tenantId && share.tenantId.toString() === id && share.status === 'pending') {
+          unpaidCount++;
+          unpaidTotal += share.amount;
+        }
+      }
+    }
+
+    if (unpaidCount > 0) {
+      return res.status(409).json({
+        message: 'Cannot delete tenant with unpaid bills',
+        unpaidCount,
+        unpaidTotal
+      });
+    }
+
+    await User.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      message: 'Tenant removed',
+      tenant: { _id: tenant._id, email: tenant.email, name: tenant.name || '' }
+    });
+
+  } catch (error) {
+    console.error('Delete tenant error:', error);
+    return res.status(500).json({ message: 'Server error during tenant deletion' });
+  }
+};
+
+module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants, deleteTenant };
 

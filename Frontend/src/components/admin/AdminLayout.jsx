@@ -3,13 +3,18 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { logout } from '../../utils/auth';
 import logoImage from '../../assets/logo.png';
 import IconPlaceholder from '../IconPlaceholder';
+import iconHome from '../../assets/Home.png';
+import iconTenants from '../../assets/tenants.png';
+import iconBills from '../../assets/Bills.png';
+import iconPayments from '../../assets/payments.png';
+import iconTenantPortal from '../../assets/tenantportal.png';
 
 const TABS = [
-  { to: '/admin/rooms',         label: 'Rooms',         icon: 'R' },
-  { to: '/admin/tenants',       label: 'Tenants',       icon: 'T' },
-  { to: '/admin/bills',         label: 'Bills',         icon: 'B' },
-  { to: '/admin/payments',      label: 'Payments',      icon: 'P' },
-  { to: '/admin/tenant-portal', label: 'Tenant Portal', icon: 'TP' },
+  { to: '/admin/rooms',         label: 'Rooms',         icon: 'R',  iconSrc: iconHome },
+  { to: '/admin/tenants',       label: 'Tenants',       icon: 'T',  iconSrc: iconTenants },
+  { to: '/admin/bills',         label: 'Bills',         icon: 'B',  iconSrc: iconBills },
+  { to: '/admin/payments',      label: 'Payments',      icon: 'P',  iconSrc: iconPayments },
+  { to: '/admin/tenant-portal', label: 'Tenant Portal', icon: 'TP', iconSrc: iconTenantPortal },
 ];
 
 function AdminLayout() {
@@ -26,7 +31,7 @@ function AdminLayout() {
       <header className="bg-white border-b-2 border-brand-orange">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={logoImage} alt="Racon Dormitel" className="h-10 w-auto" />
+            <img src={logoImage} alt="RFacon Dormitel" className="h-10 w-auto" />
             <div>
               <h1 className="font-bold text-lg leading-tight">Dormitel Admin Panel</h1>
               <p className="text-xs text-gray-500">Room & Billing Management System</p>
@@ -57,7 +62,9 @@ function AdminLayout() {
       : 'text-gray-600 hover:text-brand-orange hover:bg-gray-50')
   }
 >
-  <IconPlaceholder label={tab.iconChar} size="sm" />
+  {tab.iconSrc
+    ? <img src={tab.iconSrc} alt="" className="w-5 h-5" />
+    : <IconPlaceholder label={tab.icon} size="sm" />}
   {tab.label}
 </NavLink>
           ))}
@@ -71,7 +78,7 @@ function AdminLayout() {
 
       {/* ── Footer ────────────────────────────────────── */}
       <footer className="text-center text-xs text-gray-500 py-6">
-        <p>Racon Dormitel Admin Panel © 2026</p>
+        <p>RFacon Dormitel Admin Panel © 2026</p>
         <p>Built with React & Tailwind CSS</p>
       </footer>
     </div>

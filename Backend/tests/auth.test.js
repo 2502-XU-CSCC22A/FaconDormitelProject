@@ -7,12 +7,30 @@ jest.mock('../services/emailService', () => ({
     text: 'Test plain text'
   })
 }));
+// Mock DNS so tests don't depend on network reachability.
+// hasValidMxRecord uses dns.resolveMx — intercept that to return predictable results.
+jest.mock('dns', () => ({
+  promises: {
+    resolveMx: jest.fn(async (domain) => {
+      // Domains that should fail MX validation in tests
+      const invalidDomains = ['gmial.com', 'thisdoesnotexist123abcxyz.fake'];
+      if (invalidDomains.includes(domain)) {
+        const err = new Error('ENOTFOUND');
+        err.code = 'ENOTFOUND';
+        throw err;
+      }
+      // Everything else (gmail.com, uni.edu, etc.) returns valid MX records
+      return [{ exchange: `mx.${domain}`, priority: 10 }];
+    })
+  }
+}));
 
 const request = require('supertest');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const User = require('../models/User');
+const Bill = require('../models/Bill');
 const app = require('../server');
 
 // Import the mocked functions so we can inspect/configure them in tests
@@ -24,7 +42,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_secret_for_jest_runs_on
 // Shared fixtures
 const OWNER_EMAIL = 'owner@dormisync.local';
 const OWNER_PASSWORD = 'OwnerStrong1!';
-const TENANT_EMAIL = 'tenant1@uni.edu';
+const TENANT_EMAIL = 'tenant1@gmail.com';
 const TENANT_NAME = 'Test Tenant';
 const VALID_PASSWORD = 'MySecure1!';
 
@@ -616,5 +634,118 @@ describe('Admin Module - List Tenants', () => {
   it('should reject anonymous requests with 401', async () => {
     const response = await request(app).get('/api/admin/tenants');
     expect(response.status).toBe(401);
+  });
+});
+
+
+// =========================================================================
+// ADMIN: DELETE TENANT
+// =========================================================================
+describe('Admin Module - Delete Tenant', () => {
+  let ownerToken;
+  let tenantId;
+
+  beforeEach(async () => {
+    await Bill.deleteMany({});
+    await seedOwner();
+    ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
+
+    const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
+    const tenant = await User.create({
+      email: TENANT_EMAIL,
+      name: TENANT_NAME,
+      password: hashed,
+      role: 'client',
+      mustSetPassword: false
+    });
+    tenantId = tenant._id.toString();
+  });
+
+  afterEach(async () => {
+    await Bill.deleteMany({});
+  });
+
+  it('should delete a tenant successfully', async () => {
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${tenantId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/removed/i);
+    expect(res.body.tenant).toHaveProperty('_id');
+    expect(res.body.tenant).toHaveProperty('email', TENANT_EMAIL);
+
+    const dbUser = await User.findById(tenantId);
+    expect(dbUser).toBeNull();
+  });
+
+  it('should reject 409 when tenant has unpaid bills', async () => {
+    const fakeRoomId = new mongoose.Types.ObjectId();
+    const ownerDoc = await User.findOne({ role: 'owner' });
+    await Bill.create({
+      ownerId: ownerDoc._id,
+      roomId: fakeRoomId,
+      roomNameSnapshot: 'Room 101',
+      billingMonth: '2026-05',
+      flatFee: 3000,
+      electricity: { previousReading: 100, currentReading: 200, ratePerKwh: 11, amount: 1100 },
+      totalAmount: 4100,
+      dueDate: new Date('2026-05-31'),
+      shares: [{
+        tenantId: new mongoose.Types.ObjectId(tenantId),
+        tenantEmail: TENANT_EMAIL,
+        tenantName: TENANT_NAME,
+        amount: 4100,
+        status: 'pending'
+      }]
+    });
+
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${tenantId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/unpaid bills/i);
+    expect(res.body.unpaidCount).toBe(1);
+    expect(res.body.unpaidTotal).toBe(4100);
+
+    const dbUser = await User.findById(tenantId);
+    expect(dbUser).not.toBeNull();
+  });
+
+  it('should return 404 when tenant ID does not exist', async () => {
+    const nonExistentId = new mongoose.Types.ObjectId().toString();
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${nonExistentId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/not found/i);
+  });
+
+  it('should return 404 when target user is an owner, not a tenant', async () => {
+    const ownerDoc = await User.findOne({ role: 'owner' });
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${ownerDoc._id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/not found/i);
+  });
+
+  it('should reject 401 without auth token', async () => {
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${tenantId}`);
+
+    expect(res.status).toBe(401);
+  });
+
+  it('should reject 403 when caller is not an owner', async () => {
+    const clientToken = await loginAs(TENANT_EMAIL, VALID_PASSWORD);
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${tenantId}`)
+      .set('Authorization', `Bearer ${clientToken}`);
+
+    expect(res.status).toBe(403);
   });
 });
