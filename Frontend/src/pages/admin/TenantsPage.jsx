@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { authHeader } from '../../utils/auth';
 import InviteLinkModal from '../../components/admin/InviteLinkModal';
-import IconPlaceholder from '../../components/IconPlaceholder';
+import iconTenants from '../../assets/BigTenant2.png';
 
 const API_BASE = 'http://localhost:5000/api/admin/tenants';
 
@@ -25,6 +25,12 @@ function TenantsPage() {
 
   // Invite modal state - populated after a successful create
   const [inviteResult, setInviteResult] = useState(null);
+
+  // Delete tenant modal state
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteBlocked, setDeleteBlocked] = useState(null); // { unpaidCount, unpaidTotal } | null
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch tenants
   const fetchTenants = useCallback(async () => {
@@ -99,6 +105,45 @@ function TenantsPage() {
       setFormError('Failed to connect to the server.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const openDeleteModal = (tenant) => {
+    setDeleteTarget(tenant);
+    setDeleteError('');
+    setDeleteBlocked(null);
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteTarget(null);
+    setDeleteError('');
+    setDeleteBlocked(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    setDeleteError('');
+    setDeleteBlocked(null);
+    try {
+      const response = await fetch(`${API_BASE}/${deleteTarget._id}`, {
+        method: 'DELETE',
+        headers: { ...authHeader() }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        closeDeleteModal();
+        fetchTenants();
+      } else if (response.status === 409) {
+        setDeleteBlocked({ unpaidCount: data.unpaidCount, unpaidTotal: data.unpaidTotal });
+      } else {
+        setDeleteError(data.message || 'Failed to remove tenant.');
+      }
+    } catch (err) {
+      console.error('Delete tenant error:', err);
+      setDeleteError('Failed to connect to the server.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -237,7 +282,7 @@ function TenantsPage() {
           <div className="px-4 py-12">
             <div className="border-2 border-dashed border-gray-300 rounded-lg py-12 text-center">
               <div className="flex justify-center mb-3">
-                <IconPlaceholder label="" size="lg" />
+                <img src={iconTenants} alt="" className="w-16 h-16 opacity-50" />
               </div>
               <p className="text-sm text-gray-500">
                 No tenants registered yet. Click "Add Tenant" to get started.
@@ -258,11 +303,75 @@ function TenantsPage() {
                 <span className="italic">Unassigned</span>
               </div>
               <div className="col-span-2">{renderStatusBadge(t.status)}</div>
-              <div className="col-span-1 text-right text-gray-400 text-xs">-</div>
+              <div className="col-span-1 text-right">
+                <button
+                  type="button"
+                  onClick={() => openDeleteModal(t)}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium transition"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           ))
         )}
       </div>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6">
+            <h3 className="text-lg font-bold mb-3">Remove Tenant</h3>
+
+            {deleteBlocked ? (
+              <>
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3 mb-4">
+                  <strong>{deleteTarget.name || deleteTarget.email}</strong> has{' '}
+                  {deleteBlocked.unpaidCount} unpaid bill{deleteBlocked.unpaidCount !== 1 ? 's' : ''}{' '}
+                  totaling ₱{deleteBlocked.unpaidTotal.toLocaleString()}. Mark bills paid first.
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={closeDeleteModal}
+                    className="px-4 py-2 text-sm font-semibold rounded-md bg-gray-200 hover:bg-gray-300 text-gray-700 transition"
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-700 mb-4">
+                  Are you sure you want to remove{' '}
+                  <strong>{deleteTarget.name || '(no name)'}</strong>{' '}
+                  ({deleteTarget.email})? This cannot be undone.
+                </p>
+                {deleteError && (
+                  <p className="text-red-600 text-sm mb-3">{deleteError}</p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeDeleteModal}
+                    disabled={isDeleting}
+                    className="px-4 py-2 text-sm font-semibold rounded-md bg-gray-200 hover:bg-gray-300 text-gray-700 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDelete}
+                    disabled={isDeleting}
+                    className="px-4 py-2 text-sm font-semibold rounded-md bg-red-600 hover:bg-red-700 text-white transition disabled:opacity-50"
+                  >
+                    {isDeleting ? 'Removing...' : 'Confirm'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
        {inviteResult && (
       <InviteLinkModal

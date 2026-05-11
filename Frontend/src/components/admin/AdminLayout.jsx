@@ -3,13 +3,18 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { logout } from '../../utils/auth';
 import logoImage from '../../assets/logo.png';
 import IconPlaceholder from '../IconPlaceholder';
+import iconHome from '../../assets/Home.png';
+import iconTenants from '../../assets/tenants.png';
+import iconBills from '../../assets/Bills.png';
+import iconPayments from '../../assets/payments.png';
+import iconTenantPortal from '../../assets/tenantportal.png';
 
 const TABS = [
-  { to: '/admin/rooms',         label: 'Rooms',         icon: 'R' },
-  { to: '/admin/tenants',       label: 'Tenants',       icon: 'T' },
-  { to: '/admin/bills',         label: 'Bills',         icon: 'B' },
-  { to: '/admin/payments',      label: 'Payments',      icon: 'P' },
-  { to: '/admin/tenant-portal', label: 'Tenant Portal', icon: 'TP' },
+  { to: '/admin/rooms',         label: 'Rooms',         icon: 'R',  iconSrc: iconHome },
+  { to: '/admin/tenants',       label: 'Tenants',       icon: 'T',  iconSrc: iconTenants },
+  { to: '/admin/bills',         label: 'Bills',         icon: 'B',  iconSrc: iconBills },
+  { to: '/admin/payments',      label: 'Payments',      icon: 'P',  iconSrc: iconPayments },
+  { to: '/admin/tenant-portal', label: 'Tenant Portal', icon: 'TP', iconSrc: iconTenantPortal },
 ];
 
 function AdminLayout() {
@@ -57,7 +62,9 @@ function AdminLayout() {
       : 'text-gray-600 hover:text-brand-orange hover:bg-gray-50')
   }
 >
-  <IconPlaceholder label={tab.iconChar} size="sm" />
+  {tab.iconSrc
+    ? <img src={tab.iconSrc} alt="" className="w-5 h-5" />
+    : <IconPlaceholder label={tab.icon} size="sm" />}
   {tab.label}
 </NavLink>
           ))}
