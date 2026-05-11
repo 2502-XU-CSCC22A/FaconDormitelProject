@@ -5,6 +5,11 @@ jest.mock('../services/emailService', () => ({
     subject: 'Test Subject',
     html: '<p>Test HTML</p>',
     text: 'Test plain text'
+  }),
+  buildResetEmail: jest.fn().mockReturnValue({
+    subject: 'Reset your Rfacon Dormitel password',
+    html: '<p>Reset HTML</p>',
+    text: 'Reset plain text'
   })
 }));
 // Mock DNS so tests don't depend on network reachability.
@@ -34,7 +39,7 @@ const Bill = require('../models/Bill');
 const app = require('../server');
 
 // Import the mocked functions so we can inspect/configure them in tests
-const { sendEmail, buildInviteEmail } = require('../services/emailService');
+const { sendEmail, buildInviteEmail, buildResetEmail } = require('../services/emailService');
 
 // JWT secret for the test environment
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_secret_for_jest_runs_only';
@@ -747,5 +752,213 @@ describe('Admin Module - Delete Tenant', () => {
       .set('Authorization', `Bearer ${clientToken}`);
 
     expect(res.status).toBe(403);
+  });
+});
+
+
+// =========================================================================
+// FORGOT / RESET PASSWORD
+// =========================================================================
+describe('Auth Module - Forgot/Reset Password', () => {
+  const GENERIC_MSG = /if an account exists with that email/i;
+
+  // Helper: seed an active tenant with a known password
+  async function seedTenant(email = TENANT_EMAIL, password = VALID_PASSWORD) {
+    const hashed = await bcrypt.hash(password, 10);
+    return await User.create({
+      email,
+      password: hashed,
+      role: 'client',
+      name: TENANT_NAME,
+      mustSetPassword: false
+    });
+  }
+
+  // Helper: plant a resetToken directly on a user document
+  async function plantResetToken(userId, { expired = false } = {}) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiry = expired
+      ? new Date(Date.now() - 1000)          // 1 second in the past
+      : new Date(Date.now() + 60 * 60 * 1000); // 1 hour ahead
+    await User.findByIdAndUpdate(userId, { resetToken: token, resetTokenExpiry: expiry });
+    return token;
+  }
+
+  beforeEach(() => {
+    buildResetEmail.mockClear();
+  });
+
+  // --- Forgot Password ---
+
+  it('should return 200 with generic message when email does not exist', async () => {
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'nobody@uni.edu' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(GENERIC_MSG);
+  });
+
+  it('should return 200 and set resetToken when email exists', async () => {
+    const user = await seedTenant();
+
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: TENANT_EMAIL });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(GENERIC_MSG);
+
+    const dbUser = await User.findById(user._id);
+    expect(dbUser.resetToken).toBeTruthy();
+    expect(dbUser.resetToken.length).toBe(64);
+    expect(dbUser.resetTokenExpiry.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('should return 200 even if email service fails', async () => {
+    await seedTenant();
+    sendEmail.mockResolvedValueOnce({ success: false, error: 'SMTP timeout' });
+
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: TENANT_EMAIL });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(GENERIC_MSG);
+  });
+
+  it('should reject 400 when email is missing', async () => {
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/email is required/i);
+  });
+
+  it('should reject 400 when email format is invalid', async () => {
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'not-an-email' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/valid email/i);
+  });
+
+  // --- Reset Password ---
+
+  it('should reset password with valid token and password', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id);
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'NewPass1!' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/reset successfully/i);
+  });
+
+  it('should clear resetToken after successful reset (one-time use)', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id);
+
+    await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'NewPass1!' });
+
+    const dbUser = await User.findById(user._id);
+    expect(dbUser.resetToken).toBeNull();
+    expect(dbUser.resetTokenExpiry).toBeNull();
+  });
+
+  it('should allow login with new password after reset', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id);
+
+    await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'NewPass1!' });
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: TENANT_EMAIL, password: 'NewPass1!' });
+
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body).toHaveProperty('token');
+  });
+
+  it('should reject reuse of same token (one-time use enforcement)', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id);
+
+    await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'NewPass1!' });
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'AnotherPass1!' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/invalid or expired/i);
+  });
+
+  it('should reject expired token', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id, { expired: true });
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: VALID_PASSWORD });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/invalid or expired/i);
+  });
+
+  it('should reject unknown token with generic message', async () => {
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token: 'completely-fake-token', password: VALID_PASSWORD });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/invalid or expired/i);
+  });
+
+  it('should reject 400 when token or password missing', async () => {
+    const r1 = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ password: VALID_PASSWORD });
+    expect(r1.status).toBe(400);
+
+    const r2 = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token: 'sometoken' });
+    expect(r2.status).toBe(400);
+  });
+
+  describe('password strength rules', () => {
+    const weakPasswords = [
+      { label: 'too short', value: 'Aa1!' },
+      { label: 'no uppercase', value: 'mysecure1!' },
+      { label: 'no lowercase', value: 'MYSECURE1!' },
+      { label: 'no number', value: 'MySecure!' },
+      { label: 'no special character', value: 'MySecure1' }
+    ];
+
+    weakPasswords.forEach(({ label, value }) => {
+      it(`should reject password: ${label}`, async () => {
+        const user = await seedTenant();
+        const token = await plantResetToken(user._id);
+
+        const res = await request(app)
+          .post('/api/auth/reset-password')
+          .send({ token, password: value });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toMatch(/does not meet requirements/i);
+        expect(Array.isArray(res.body.errors)).toBe(true);
+      });
+    });
   });
 });
