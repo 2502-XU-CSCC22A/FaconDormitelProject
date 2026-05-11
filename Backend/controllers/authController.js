@@ -1,4 +1,4 @@
-const { sendEmail, buildInviteEmail } = require('../services/emailService');
+const { sendEmail, buildInviteEmail, buildResetEmail } = require('../services/emailService');
 const dns = require('dns').promises;
 const User = require('../models/User');
 const Bill = require('../models/Bill');
@@ -460,5 +460,84 @@ const deleteTenant = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants, deleteTenant };
+// --- 9. FORGOT PASSWORD (PUBLIC) ---
+// Always returns the same 200 response regardless of whether the email exists,
+// to prevent user enumeration attacks.
+const forgotPassword = async (req, res) => {
+  const GENERIC_MSG = 'If an account exists with that email, we have sent reset instructions.';
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ message: 'Please provide a valid email address' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (user) {
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const ONE_HOUR = 60 * 60 * 1000;
+      user.resetToken = resetToken;
+      user.resetTokenExpiry = new Date(Date.now() + ONE_HOUR);
+      await user.save();
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+      try {
+        const { subject, html, text } = buildResetEmail({ userName: user.name, resetLink });
+        await sendEmail({ to: normalizedEmail, subject, html, text });
+      } catch (emailErr) {
+        console.error('[forgotPassword] Email error:', emailErr.message);
+      }
+    }
+
+    return res.status(200).json({ message: GENERIC_MSG });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({ message: 'Server error during password reset request' });
+  }
+};
+
+// --- 10. RESET PASSWORD WITH TOKEN (PUBLIC) ---
+const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ message: 'Token and password are required' });
+    }
+
+    const passwordErrors = validatePassword(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        message: 'Password does not meet requirements',
+        errors: passwordErrors
+      });
+    }
+
+    const user = await User.findOne({ resetToken: token });
+
+    if (!user || !user.resetTokenExpiry || user.resetTokenExpiry.getTime() < Date.now()) {
+      return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(password, salt);
+    user.resetToken = null;
+    user.resetTokenExpiry = null;
+    await user.save();
+
+    return res.status(200).json({ message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({ message: 'Server error during password reset' });
+  }
+};
+
+module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants, deleteTenant, forgotPassword, resetPassword };
 

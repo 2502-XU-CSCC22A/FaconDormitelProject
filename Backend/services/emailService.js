@@ -141,4 +141,71 @@ function buildInviteEmail({ tenantName, inviteLink, ownerName }) {
   return { subject, html, text };
 }
 
-module.exports = { sendEmail, buildInviteEmail };
+/**
+ * Build the HTML and plain-text bodies for the password reset email.
+ *
+ * @param {Object} options
+ * @param {string} options.userName  - User's name (or empty)
+ * @param {string} options.resetLink - Full reset URL
+ * @returns {{ subject: string, html: string, text: string }}
+ */
+function buildResetEmail({ userName, resetLink }) {
+  const greeting = userName ? `Hi ${userName},` : 'Hello,';
+
+  const subject = 'Reset your Rfacon Dormitel password';
+
+  const text = [
+    greeting,
+    '',
+    'We received a request to reset your password.',
+    '',
+    'Click this link to set a new password:',
+    resetLink,
+    '',
+    'This link expires in 1 hour.',
+    '',
+    "If you didn't request this, you can safely ignore this email.",
+    '',
+    '—',
+    'Rfacon Dormitel'
+  ].join('\n');
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${subject}</title>
+</head>
+<body style="font-family: 'Segoe UI', Tahoma, sans-serif; background: #FFF8EE; padding: 24px; color: #333;">
+  <div style="max-width: 540px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 32px; border-top: 4px solid #E8A93D;">
+    <h2 style="margin-top: 0; color: #333;">Reset Your Password</h2>
+    <p>${greeting}</p>
+    <p>We received a request to reset your Rfacon Dormitel password.</p>
+    <p>Click the button below to set a new password:</p>
+    <p style="text-align: center; margin: 32px 0;">
+      <a href="${resetLink}"
+         style="display: inline-block; background: #E8A93D; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 600;">
+        Reset Password
+      </a>
+    </p>
+    <p style="color: #666; font-size: 13px;">
+      Or copy this link into your browser:<br>
+      <span style="word-break: break-all; color: #555;">${resetLink}</span>
+    </p>
+    <p style="color: #999; font-size: 12px; margin-top: 24px;">
+      This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.
+    </p>
+    <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px 0;">
+    <p style="color: #999; font-size: 12px; margin: 0;">
+      Rfacon Dormitel — Dormitory Management System
+    </p>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  return { subject, html, text };
+}
+
+module.exports = { sendEmail, buildInviteEmail, buildResetEmail };

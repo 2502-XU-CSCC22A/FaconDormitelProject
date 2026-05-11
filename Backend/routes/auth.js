@@ -5,13 +5,17 @@ const {
   login,
   getMe,
   logout,
-  setPasswordWithToken
+  setPasswordWithToken,
+  forgotPassword,
+  resetPassword
 } = require('../controllers/authController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 
 // --- Public routes ---
 router.post('/login', login);
 router.post('/set-password', setPasswordWithToken);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
 
 router.post('/register', (req, res) => {
