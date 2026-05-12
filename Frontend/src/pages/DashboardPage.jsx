@@ -3,7 +3,7 @@
 // Tenant landing page (role: client). Fetches and displays the tenant's bills.
 // Owners are bounced to /admin/tenants by the useEffect below.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getUser, logout, authHeader } from '../utils/auth';
 import logoImage from '../assets/logo.png';
@@ -57,7 +57,7 @@ function ShareStatusBadge({ share }) {
 
 function DashboardPage() {
   const navigate = useNavigate();
-  const user = getUser();
+  const user = useMemo(() => getUser(), []);
 
   const [bills, setBills] = useState([]);
   const [arrears, setArrears] = useState(0);
@@ -94,10 +94,10 @@ function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (user?.role !== 'owner') {
-      fetchBills();
-    }
-  }, [fetchBills, user]);
+  if (user?.role !== 'owner') {
+    fetchBills();
+  }
+}, [fetchBills, user?.role]);
 
   const handleLogout = async () => {
     await logout();
