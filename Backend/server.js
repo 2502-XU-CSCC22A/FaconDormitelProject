@@ -1,7 +1,9 @@
 require('dotenv').config();
 
+const fs = require('fs');
 const express = require('express');
 const mongoose = require('mongoose');
+const { authMiddleware } = require('./middleware/authMiddleware');
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/room');
 const adminRoutes = require('./routes/admin');
@@ -14,9 +16,12 @@ if (process.env.NODE_ENV !== 'test') {
     .then(() => console.log('MongoDB is successfully connected!'))
     .catch(err => console.log('Database connection error: ', err));
 }
+fs.mkdirSync('uploads/payment-proofs', { recursive: true });
+
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', authMiddleware, express.static('uploads'));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
