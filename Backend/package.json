@@ -19,6 +19,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.4.1"
+    "mongoose": "^9.4.1",
+    "multer": "^2.1.1",
+    "nodemailer": "^8.0.7",
+    "uuid": "^7.0.3"
   }
 }

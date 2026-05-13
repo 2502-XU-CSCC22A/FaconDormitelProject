@@ -1,7 +1,12 @@
+const { sendEmail, buildInviteEmail, buildResetEmail } = require('../services/emailService');
+const dns = require('dns').promises;
 const User = require('../models/User');
+const Bill = require('../models/Bill');
+const Room = require('../models/Room');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 // --- VALIDATION HELPERS ---
 
@@ -38,6 +43,18 @@ const validatePassword = (password) => {
   }
 
   return errors;
+};
+const hasValidMxRecord = async (email) => {
+  try {
+    const domain = email.split('@')[1];
+    if (!domain) return false;
+
+    const records = await dns.resolveMx(domain);
+    return Array.isArray(records) && records.length > 0;
+  } catch (err) {
+    // ENOTFOUND, ENODATA, etc. = no MX records or no domain
+    return false;
+  }
 };
 
 // --- 1. REGISTRATION ENGINE (TENANTS ONLY) ---
@@ -188,7 +205,7 @@ const logout = async (req, res) => {
 // but DO NOT set a password — the tenant sets one via an invite link.
 const createTenant = async (req, res) => {
   try {
-    const { name, email } = req.body;
+    const { name, email, roomId } = req.body;
 
     // Field presence
     if (!email) {
@@ -199,10 +216,33 @@ const createTenant = async (req, res) => {
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Please provide a valid email address' });
     }
+    // Email domain validation — does the domain actually accept mail?
+    const mxValid = await hasValidMxRecord(email);
+    if (!mxValid) {
+      return res.status(400).json({
+        message: 'This email domain does not appear to accept mail. Please check for typos.'
+      });
+    }
+   // Name validation (forward-only — existing records aren't affected)
+    const trimmedName = (name || '').trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      return res.status(400).json({ message: 'Name is required (minimum 2 characters)' });
+    }
+    // Capacity check — must run before creating/updating any User document
+    if (roomId) {
+      const room = await Room.findById(roomId);
+      if (!room) {
+        return res.status(404).json({ message: 'Room not found' });
+      }
+      const occupantCount = await User.countDocuments({ roomId, role: 'client' });
+      if (occupantCount >= room.capacity) {
+        return res.status(409).json({
+          message: `Room ${room.roomNumber} is at full capacity (${room.capacity}/${room.capacity})`
+        });
+      }
+    }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const trimmedName = (name || '').trim();
-
     // Look up any existing user with this email
     const existing = await User.findOne({ email: normalizedEmail });
 
@@ -216,10 +256,11 @@ const createTenant = async (req, res) => {
     if (existing) {
       // Case A: existing tenant who hasn't set a password yet → re-issue invite
       if (existing.role === 'client' && existing.mustSetPassword) {
-        existing.name = trimmedName || existing.name;
+        existing.name = trimmedName;
         existing.inviteToken = inviteToken;
         existing.inviteTokenExpiry = inviteTokenExpiry;
         existing.invitedBy = req.user.userId;
+        if (roomId) existing.roomId = roomId;
         await existing.save();
         user = existing;
       } else {
@@ -238,15 +279,36 @@ const createTenant = async (req, res) => {
         mustSetPassword: true,
         inviteToken,
         inviteTokenExpiry,
-        invitedBy: req.user.userId
+        invitedBy: req.user.userId,
+        ...(roomId ? { roomId } : {})
       });
       await user.save();
     }
 
+    if (roomId) {
+      await Room.findByIdAndUpdate(roomId, { $inc: { currentOccupants: 1 } });
+    }
+
     // Build the invite link the owner will share with the tenant.
-    // The frontend origin comes from FRONTEND_URL in .env, falling back to localhost.
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const inviteLink = `${frontendUrl}/set-password?token=${inviteToken}`;
+
+    let emailSent = false;
+    let emailError = null;
+    try {
+      const owner = await User.findById(req.user.userId).select('name email');
+      const { subject, html, text } = buildInviteEmail({
+        tenantName: trimmedName,
+        inviteLink,
+        ownerName: owner?.name || 'Your landlord'
+      });
+      const result = await sendEmail({ to: normalizedEmail, subject, html, text });
+      emailSent = result.success;
+      if (!result.success) emailError = result.error;
+    } catch (err) {
+      console.error('[createTenant] Email error:', err.message);
+      emailError = err.message;
+    }
 
     return res.status(201).json({
       message: 'Tenant invited successfully',
@@ -258,7 +320,9 @@ const createTenant = async (req, res) => {
         mustSetPassword: user.mustSetPassword
       },
       inviteLink,
-      inviteExpiresAt: inviteTokenExpiry
+      inviteExpiresAt: inviteTokenExpiry,
+      emailSent,
+      emailError   
     });
 
   } catch (error) {
@@ -344,18 +408,19 @@ const listTenants = async (req, res) => {
   try {
     const tenants = await User.find(
       { role: 'client' },
-      // Project only the fields the UI needs — never include passwords or tokens
-      { name: 1, email: 1, mustSetPassword: 1, inviteTokenExpiry: 1, createdAt: 1 }
-    ).sort({ createdAt: -1 });
+      { name: 1, email: 1, mustSetPassword: 1, inviteTokenExpiry: 1, createdAt: 1, roomId: 1 }
+    )
+      .populate('roomId', 'roomNumber name')
+      .sort({ createdAt: -1 });
 
-    // Transform into a clean shape for the frontend
     const formatted = tenants.map((t) => ({
       _id: t._id,
       name: t.name || '',
       email: t.email,
       status: t.mustSetPassword ? 'pending' : 'active',
       inviteExpiresAt: t.mustSetPassword ? t.inviteTokenExpiry : null,
-      createdAt: t.createdAt
+      createdAt: t.createdAt,
+      room: t.roomId ? { _id: t.roomId._id, roomNumber: t.roomId.roomNumber, name: t.roomId.name } : null
     }));
 
     return res.status(200).json({ tenants: formatted });
@@ -365,5 +430,216 @@ const listTenants = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants };
+// --- 8. DELETE TENANT (OWNER-ONLY) ---
+// Hard-deletes a tenant account after verifying no pending bill shares exist.
+// Bills that already reference the tenant are preserved (frozen snapshot design).
+const deleteTenant = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({ message: 'Tenant not found' });
+    }
+
+    const tenant = await User.findById(id);
+    if (!tenant || tenant.role !== 'client') {
+      return res.status(404).json({ message: 'Tenant not found' });
+    }
+
+    // Check for pending bill shares before deleting
+    const billsWithUnpaid = await Bill.find({
+      shares: { $elemMatch: { tenantId: new mongoose.Types.ObjectId(id), status: 'pending' } }
+    });
+
+    let unpaidCount = 0;
+    let unpaidTotal = 0;
+    for (const bill of billsWithUnpaid) {
+      for (const share of bill.shares) {
+        if (share.tenantId && share.tenantId.toString() === id && share.status === 'pending') {
+          unpaidCount++;
+          unpaidTotal += share.amount;
+        }
+      }
+    }
+
+    if (unpaidCount > 0) {
+      return res.status(409).json({
+        message: 'Cannot delete tenant with unpaid bills',
+        unpaidCount,
+        unpaidTotal
+      });
+    }
+
+    if (tenant.roomId) {
+      await Room.findByIdAndUpdate(tenant.roomId, { $inc: { currentOccupants: -1 } });
+    }
+
+    await User.findByIdAndDelete(id);
+
+    return res.status(200).json({
+      message: 'Tenant removed',
+      tenant: { _id: tenant._id, email: tenant.email, name: tenant.name || '' }
+    });
+
+  } catch (error) {
+    console.error('Delete tenant error:', error);
+    return res.status(500).json({ message: 'Server error during tenant deletion' });
+  }
+};
+
+// --- 9. FORGOT PASSWORD (PUBLIC) ---
+// Always returns the same 200 response regardless of whether the email exists,
+// to prevent user enumeration attacks.
+const forgotPassword = async (req, res) => {
+  const GENERIC_MSG = 'If an account exists with that email, we have sent reset instructions.';
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ message: 'Please provide a valid email address' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (user) {
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const ONE_HOUR = 60 * 60 * 1000;
+      user.resetToken = resetToken;
+      user.resetTokenExpiry = new Date(Date.now() + ONE_HOUR);
+      await user.save();
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+      try {
+        const { subject, html, text } = buildResetEmail({ userName: user.name, resetLink });
+        await sendEmail({ to: normalizedEmail, subject, html, text });
+      } catch (emailErr) {
+        console.error('[forgotPassword] Email error:', emailErr.message);
+      }
+    }
+
+    return res.status(200).json({ message: GENERIC_MSG });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({ message: 'Server error during password reset request' });
+  }
+};
+
+// --- 10. RESET PASSWORD WITH TOKEN (PUBLIC) ---
+const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ message: 'Token and password are required' });
+    }
+
+    const passwordErrors = validatePassword(password);
+    if (passwordErrors.length > 0) {
+      return res.status(400).json({
+        message: 'Password does not meet requirements',
+        errors: passwordErrors
+      });
+    }
+
+    const user = await User.findOne({ resetToken: token });
+
+    if (!user || !user.resetTokenExpiry || user.resetTokenExpiry.getTime() < Date.now()) {
+      return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(password, salt);
+    user.resetToken = null;
+    user.resetTokenExpiry = null;
+    await user.save();
+
+    return res.status(200).json({ message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({ message: 'Server error during password reset' });
+  }
+};
+
+// --- 11. REASSIGN TENANT ROOM (OWNER-ONLY) ---
+// PATCH /api/admin/tenants/:id/room   body: { roomId: ObjectId | null }
+// Moves a tenant to a different room, or unassigns them (roomId: null).
+const reassignTenantRoom = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { roomId } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(404).json({ message: 'Tenant not found' });
+    }
+
+    // Owner-scoped: only tenants this owner invited
+    const tenant = await User.findOne({ _id: id, role: 'client', invitedBy: req.user.userId });
+    if (!tenant) {
+      return res.status(404).json({ message: 'Tenant not found' });
+    }
+
+    const oldRoomId = tenant.roomId ? tenant.roomId.toString() : null;
+
+    // Unassign path
+    if (!roomId) {
+      tenant.roomId = null;
+      await tenant.save();
+      if (oldRoomId) {
+        await Room.findByIdAndUpdate(oldRoomId, { $inc: { currentOccupants: -1 } });
+      }
+      return res.status(200).json({ message: 'Tenant unassigned from room', tenant: { _id: tenant._id, roomId: null } });
+    }
+
+    if (!mongoose.isValidObjectId(roomId)) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    // No-op: already in this room
+    if (oldRoomId === roomId.toString()) {
+      return res.status(200).json({ message: 'No change', tenant: { _id: tenant._id, roomId: tenant.roomId } });
+    }
+
+    const room = await Room.findById(roomId);
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    // Capacity check — exclude this tenant in case they're somehow already counted
+    const occupantCount = await User.countDocuments({
+      roomId: room._id,
+      role: 'client',
+      _id: { $ne: tenant._id }
+    });
+    if (occupantCount >= room.capacity) {
+      return res.status(409).json({
+        message: `Room ${room.roomNumber} is at full capacity (${room.capacity}/${room.capacity})`
+      });
+    }
+
+    // Swap rooms
+    if (oldRoomId) {
+      await Room.findByIdAndUpdate(oldRoomId, { $inc: { currentOccupants: -1 } });
+    }
+    tenant.roomId = room._id;
+    await tenant.save();
+    await Room.findByIdAndUpdate(room._id, { $inc: { currentOccupants: 1 } });
+
+    return res.status(200).json({
+      message: 'Tenant room updated',
+      tenant: { _id: tenant._id, roomId: tenant.roomId }
+    });
+
+  } catch (error) {
+    console.error('Reassign tenant room error:', error);
+    return res.status(500).json({ message: 'Server error during room reassignment' });
+  }
+};
+
+module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants, deleteTenant, forgotPassword, resetPassword, reassignTenantRoom };
 

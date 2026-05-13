@@ -1,5 +1,4 @@
-// src/pages/SetPasswordPage.jsx
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import PasswordChecklist from '../components/PasswordChecklist';
 import { isPasswordValid } from '../utils/validators';
@@ -14,33 +13,22 @@ import {
 } from '../styles/authStyles';
 import logoImage from '../assets/logo.png';
 
-function SetPasswordPage() {
+function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-
-  // Only flips true when the user clicks Set Password with mismatched values.
   const [showMismatchError, setShowMismatchError] = useState(false);
-
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!token) {
-      setIsError(true);
-      setMessage('No invite token provided. Please use the link from your invite email.');
-    }
-  }, [token]);
-
   const passwordsMatch = password.length > 0 && password === confirmPassword;
 
-  // Don't gate on passwordsMatch — let the user click Submit and SEE the error
   const canSubmit =
     !!token && isPasswordValid(password) && confirmPassword.length > 0 && !isSubmitting;
 
@@ -82,7 +70,7 @@ function SetPasswordPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/auth/set-password', {
+      const response = await fetch('http://localhost:5000/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password })
@@ -91,23 +79,38 @@ function SetPasswordPage() {
       const data = await response.json();
 
       if (response.ok) {
-        setMessage('Password set successfully! Redirecting to login...');
+        setMessage('Password reset! Redirecting to login...');
         setIsError(false);
-        setTimeout(() => {
-          navigate('/login', { state: { justOnboarded: true } });
-        }, 1500);
+        setTimeout(() => navigate('/login'), 1500);
       } else {
         setIsError(true);
-        setMessage(data.message || 'Failed to set password.');
+        setMessage(data.message || 'Failed to reset password.');
       }
-    } catch (error) {
-      console.error('Set password error:', error);
+    } catch (err) {
+      console.error('Reset password error:', err);
       setIsError(true);
       setMessage('Failed to connect to the server. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (!token) {
+    return (
+      <div style={pageStyle}>
+        <div style={cardStyle}>
+          <img
+            src={logoImage}
+            alt="Rfacon Dormitel"
+            style={{ display: 'block', margin: '0 auto 12px', maxWidth: '260px', height: 'auto' }}
+          />
+          <p style={{ ...messageStyle, color: '#c00', textAlign: 'center' }}>
+            No reset token. Use the link from your reset email.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={pageStyle}>
@@ -118,60 +121,58 @@ function SetPasswordPage() {
           style={{ display: 'block', margin: '0 auto 12px', maxWidth: '260px', height: 'auto' }}
         />
 
-        <h2 style={{ textAlign: 'center', marginBottom: '8px' }}>Set Your Password</h2>
+        <h2 style={{ textAlign: 'center', marginBottom: '8px' }}>Reset Password</h2>
         <p style={{ textAlign: 'center', color: '#666', marginBottom: '24px', fontSize: '14px' }}>
-          Welcome! Create a password to finish setting up your account.
+          Enter your new password below.
         </p>
 
-        {token ? (
-          <form onSubmit={handleSubmit}>
-            <label style={labelStyle}>New Password</label>
-            <div style={passwordWrapperStyle}>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                style={passwordInputStyle}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                style={toggleButtonStyle}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? 'Hide' : 'Show'}
-              </button>
-            </div>
-
-            <PasswordChecklist password={password} />
-
-            <label style={{ ...labelStyle, marginTop: '12px' }}>Confirm Password</label>
+        <form onSubmit={handleSubmit}>
+          <label style={labelStyle}>New Password</label>
+          <div style={passwordWrapperStyle}>
             <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => {
-                setConfirmPassword(e.target.value);
-                if (showMismatchError) setShowMismatchError(false);
-              }}
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
-              style={inputStyle}
+              style={passwordInputStyle}
             />
-            {showMismatchError && (
-              <p style={{ color: '#c00', fontSize: '13px', marginTop: '-4px' }}>
-                Passwords don't match.
-              </p>
-            )}
-
             <button
-              type="submit"
-              disabled={!canSubmit}
-              style={canSubmit ? buttonStyle : buttonDisabledStyle}
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              style={toggleButtonStyle}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              {isSubmitting ? 'SETTING PASSWORD...' : 'SET PASSWORD'}
+              {showPassword ? 'Hide' : 'Show'}
             </button>
-          </form>
-        ) : null}
+          </div>
+
+          <PasswordChecklist password={password} />
+
+          <label style={{ ...labelStyle, marginTop: '12px' }}>Confirm Password</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => {
+              setConfirmPassword(e.target.value);
+              if (showMismatchError) setShowMismatchError(false);
+            }}
+            required
+            style={inputStyle}
+          />
+          {showMismatchError && (
+            <p style={{ color: '#c00', fontSize: '13px', marginTop: '-4px' }}>
+              Passwords don't match.
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            style={canSubmit ? buttonStyle : buttonDisabledStyle}
+          >
+            {isSubmitting ? 'RESETTING...' : 'RESET PASSWORD'}
+          </button>
+        </form>
 
         {message && (
           <p style={{ ...messageStyle, color: isError ? '#c00' : '#080' }}>
@@ -183,4 +184,4 @@ function SetPasswordPage() {
   );
 }
 
-export default SetPasswordPage;
+export default ResetPasswordPage;

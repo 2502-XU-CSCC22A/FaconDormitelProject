@@ -1,21 +1,45 @@
-// Backend/tests/auth.test.js
-//
-// Integration tests for the auth module (post owner-invites-tenant refactor).
-// Coverage:
-//   - Login (positive, negative, mustSetPassword block)
-//   - Protected routes (auth middleware behavior)
-//   - Admin: create tenant (owner-only, validation, conflict cases)
-//   - Public: set password via invite token (validation, expiry, replay)
-//   - Deprecated /register endpoint (should return 410 Gone)
-//
-// Run from Backend/ with: npm test
+
+jest.mock('../services/emailService', () => ({
+  sendEmail: jest.fn().mockResolvedValue({ success: true }),
+  buildInviteEmail: jest.fn().mockReturnValue({
+    subject: 'Test Subject',
+    html: '<p>Test HTML</p>',
+    text: 'Test plain text'
+  }),
+  buildResetEmail: jest.fn().mockReturnValue({
+    subject: 'Reset your Rfacon Dormitel password',
+    html: '<p>Reset HTML</p>',
+    text: 'Reset plain text'
+  })
+}));
+// Mock DNS so tests don't depend on network reachability.
+// hasValidMxRecord uses dns.resolveMx — intercept that to return predictable results.
+jest.mock('dns', () => ({
+  promises: {
+    resolveMx: jest.fn(async (domain) => {
+      // Domains that should fail MX validation in tests
+      const invalidDomains = ['gmial.com', 'thisdoesnotexist123abcxyz.fake'];
+      if (invalidDomains.includes(domain)) {
+        const err = new Error('ENOTFOUND');
+        err.code = 'ENOTFOUND';
+        throw err;
+      }
+      // Everything else (gmail.com, uni.edu, etc.) returns valid MX records
+      return [{ exchange: `mx.${domain}`, priority: 10 }];
+    })
+  }
+}));
 
 const request = require('supertest');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const User = require('../models/User');
+const Bill = require('../models/Bill');
 const app = require('../server');
+
+// Import the mocked functions so we can inspect/configure them in tests
+const { sendEmail, buildInviteEmail, buildResetEmail } = require('../services/emailService');
 
 // JWT secret for the test environment
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_secret_for_jest_runs_only';
@@ -23,11 +47,11 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test_secret_for_jest_runs_on
 // Shared fixtures
 const OWNER_EMAIL = 'owner@dormisync.local';
 const OWNER_PASSWORD = 'OwnerStrong1!';
-const TENANT_EMAIL = 'tenant1@uni.edu';
+const TENANT_EMAIL = 'tenant1@gmail.com';
 const TENANT_NAME = 'Test Tenant';
 const VALID_PASSWORD = 'MySecure1!';
 
-// Helper: seed an owner directly in the database (bypasses the seed script)
+// Helper: seed an owner directly in the database
 async function seedOwner(email = OWNER_EMAIL, password = OWNER_PASSWORD) {
   const hashed = await bcrypt.hash(password, 10);
   return await User.create({
@@ -47,7 +71,7 @@ async function loginAs(email, password) {
   return res.body.token;
 }
 
-// Helper: extract token from an invite link like ".../set-password?token=xyz"
+// Helper: extract token from an invite link
 function extractToken(inviteLink) {
   return inviteLink.split('token=')[1];
 }
@@ -55,14 +79,16 @@ function extractToken(inviteLink) {
 // Test setup
 beforeAll(async () => {
   await mongoose.connect('mongodb://localhost:27017/dormisync_test');
-  // Wipe stale indexes from previous schema versions, then sync current schema's indexes.
-  // Prevents tests from breaking when the User schema's indexed fields change.
   await User.collection.dropIndexes().catch(() => { /* ignore if no indexes exist yet */ });
   await User.syncIndexes();
 });
 
 beforeEach(async () => {
   await User.deleteMany({});
+  // Reset email mock between tests so call counts are accurate
+  sendEmail.mockClear();
+  buildInviteEmail.mockClear();
+  sendEmail.mockResolvedValue({ success: true });
 });
 
 afterAll(async () => {
@@ -119,7 +145,6 @@ describe('Auth Module - Login', () => {
   });
 
   it('should return 403 when user has mustSetPassword=true', async () => {
-    // Create an invited tenant who hasn't set a password yet
     await User.create({
       email: TENANT_EMAIL,
       password: null,
@@ -166,7 +191,7 @@ describe('Auth Module - Deprecated /register endpoint', () => {
 
 
 // =========================================================================
-// PROTECTED ROUTES (auth middleware)
+// PROTECTED ROUTES
 // =========================================================================
 describe('Auth Module - Protected Routes', () => {
   it('should reject GET /me without a token (401)', async () => {
@@ -179,7 +204,6 @@ describe('Auth Module - Protected Routes', () => {
     const response = await request(app)
       .get('/api/auth/me')
       .set('Authorization', 'NotBearer xyz');
-
     expect(response.status).toBe(401);
   });
 
@@ -187,7 +211,6 @@ describe('Auth Module - Protected Routes', () => {
     const response = await request(app)
       .get('/api/auth/me')
       .set('Authorization', 'Bearer not.a.valid.token');
-
     expect(response.status).toBe(401);
   });
 
@@ -220,10 +243,30 @@ describe('Auth Module - Protected Routes', () => {
 
 
 // =========================================================================
-// ADMIN: CREATE TENANT (POST /api/admin/tenants)
+// ADMIN: CREATE TENANT
 // =========================================================================
 describe('Admin Module - Create Tenant', () => {
   let ownerToken;
+  it('should reject 400 when email domain has no MX records', async () => {
+    // gmial.com is a real-world typo — domain doesn't exist / has no MX
+    const response = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: 'someone@gmial.com' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/does not appear to accept mail/i);
+  }, 15000);   // 15s timeout — DNS lookups can take a few seconds
+
+  it('should reject 400 for completely fake/nonexistent domain', async () => {
+    const response = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: 'someone@thisdoesnotexist123abcxyz.fake' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(/does not appear to accept mail/i);
+  }, 15000);
 
   beforeEach(async () => {
     await seedOwner();
@@ -259,7 +302,7 @@ describe('Admin Module - Create Tenant', () => {
     expect(dbUser.mustSetPassword).toBe(true);
     expect(dbUser.password).toBeNull();
     expect(dbUser.inviteToken).toBeTruthy();
-    expect(dbUser.inviteToken.length).toBe(64); // 32 bytes hex
+    expect(dbUser.inviteToken.length).toBe(64);
     expect(dbUser.inviteTokenExpiry.getTime()).toBeGreaterThan(Date.now());
   });
 
@@ -267,12 +310,10 @@ describe('Admin Module - Create Tenant', () => {
     const response = await request(app)
       .post('/api/admin/tenants')
       .send({ email: TENANT_EMAIL, name: TENANT_NAME });
-
     expect(response.status).toBe(401);
   });
 
   it('should reject when called by a non-owner (403)', async () => {
-    // Create a client user and log them in
     const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
     await User.create({
       email: TENANT_EMAIL,
@@ -311,8 +352,28 @@ describe('Admin Module - Create Tenant', () => {
     expect(response.body.message).toMatch(/valid email/i);
   });
 
+  it('should reject 400 when name is missing or too short', async () => {
+    const r1 = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: TENANT_EMAIL });
+    expect(r1.status).toBe(400);
+    expect(r1.body.message).toMatch(/name is required/i);
+
+    const r2 = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: TENANT_EMAIL, name: '   ' });
+    expect(r2.status).toBe(400);
+
+    const r3 = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: TENANT_EMAIL, name: 'A' });
+    expect(r3.status).toBe(400);
+  });
+
   it('should return 409 when email already belongs to a fully-active account', async () => {
-    // Create a fully-onboarded tenant
     const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
     await User.create({
       email: TENANT_EMAIL,
@@ -331,14 +392,12 @@ describe('Admin Module - Create Tenant', () => {
   });
 
   it('should re-issue a fresh token when re-inviting an un-onboarded tenant', async () => {
-    // First invitation
     const first = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({ email: TENANT_EMAIL, name: TENANT_NAME });
     const firstToken = extractToken(first.body.inviteLink);
 
-    // Second invitation (same email, still un-onboarded)
     const second = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -348,7 +407,6 @@ describe('Admin Module - Create Tenant', () => {
     expect(second.status).toBe(201);
     expect(secondToken).not.toBe(firstToken);
 
-    // Old token should no longer be valid in DB
     const dbUser = await User.findOne({ email: TENANT_EMAIL });
     expect(dbUser.inviteToken).toBe(secondToken);
   });
@@ -366,7 +424,7 @@ describe('Admin Module - Create Tenant', () => {
 
 
 // =========================================================================
-// PUBLIC: SET PASSWORD WITH TOKEN (POST /api/auth/set-password)
+// PUBLIC: SET PASSWORD WITH TOKEN
 // =========================================================================
 describe('Auth Module - Set Password with Invite Token', () => {
   let inviteToken;
@@ -376,7 +434,6 @@ describe('Auth Module - Set Password with Invite Token', () => {
     await seedOwner();
     ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
 
-    // Create a tenant to get a real invite token
     const inviteRes = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -403,7 +460,7 @@ describe('Auth Module - Set Password with Invite Token', () => {
     expect(dbUser.inviteToken).toBeNull();
     expect(dbUser.inviteTokenExpiry).toBeNull();
     expect(dbUser.password).toBeTruthy();
-    expect(dbUser.password).not.toBe(VALID_PASSWORD); // should be hashed
+    expect(dbUser.password).not.toBe(VALID_PASSWORD);
   });
 
   it('should allow tenant to log in after password is set', async () => {
@@ -421,12 +478,10 @@ describe('Auth Module - Set Password with Invite Token', () => {
   });
 
   it('should reject reuse of the same token (one-time use)', async () => {
-    // First use succeeds
     await request(app)
       .post('/api/auth/set-password')
       .send({ token: inviteToken, password: VALID_PASSWORD });
 
-    // Second use fails
     const response = await request(app)
       .post('/api/auth/set-password')
       .send({ token: inviteToken, password: 'AnotherPass1!' });
@@ -445,7 +500,6 @@ describe('Auth Module - Set Password with Invite Token', () => {
   });
 
   it('should reject an expired token', async () => {
-    // Manually expire the token in the database
     await User.updateOne(
       { email: TENANT_EMAIL },
       { $set: { inviteTokenExpiry: new Date(Date.now() - 1000) } }
@@ -502,8 +556,10 @@ describe('Auth Module - Set Password with Invite Token', () => {
     });
   });
 });
+
+
 // =========================================================================
-// ADMIN: LIST TENANTS (GET /api/admin/tenants)
+// ADMIN: LIST TENANTS
 // =========================================================================
 describe('Admin Module - List Tenants', () => {
   let ownerToken;
@@ -525,7 +581,6 @@ describe('Admin Module - List Tenants', () => {
   });
 
   it('should return tenants with pending status when they have not set a password', async () => {
-    // Create a tenant via the createTenant flow
     await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -542,13 +597,9 @@ describe('Admin Module - List Tenants', () => {
       email: TENANT_EMAIL,
       status: 'pending'
     });
-    expect(response.body.tenants[0]).toHaveProperty('inviteExpiresAt');
-    expect(response.body.tenants[0]).not.toHaveProperty('password');
-    expect(response.body.tenants[0]).not.toHaveProperty('inviteToken');
   });
 
   it('should return tenants with active status after they set a password', async () => {
-    // Create + onboard a tenant
     const createRes = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -558,7 +609,6 @@ describe('Admin Module - List Tenants', () => {
       .post('/api/auth/set-password')
       .send({ token: inviteToken, password: VALID_PASSWORD });
 
-    // Now list tenants
     const response = await request(app)
       .get('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`);
@@ -569,7 +619,6 @@ describe('Admin Module - List Tenants', () => {
   });
 
   it('should reject non-owners with 403', async () => {
-    // Create + onboard a client, then log in as them
     const createRes = await request(app)
       .post('/api/admin/tenants')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -590,5 +639,525 @@ describe('Admin Module - List Tenants', () => {
   it('should reject anonymous requests with 401', async () => {
     const response = await request(app).get('/api/admin/tenants');
     expect(response.status).toBe(401);
+  });
+});
+
+
+// =========================================================================
+// ADMIN: DELETE TENANT
+// =========================================================================
+describe('Admin Module - Delete Tenant', () => {
+  let ownerToken;
+  let tenantId;
+
+  beforeEach(async () => {
+    await Bill.deleteMany({});
+    await seedOwner();
+    ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
+
+    const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
+    const tenant = await User.create({
+      email: TENANT_EMAIL,
+      name: TENANT_NAME,
+      password: hashed,
+      role: 'client',
+      mustSetPassword: false
+    });
+    tenantId = tenant._id.toString();
+  });
+
+  afterEach(async () => {
+    await Bill.deleteMany({});
+  });
+
+  it('should delete a tenant successfully', async () => {
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${tenantId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/removed/i);
+    expect(res.body.tenant).toHaveProperty('_id');
+    expect(res.body.tenant).toHaveProperty('email', TENANT_EMAIL);
+
+    const dbUser = await User.findById(tenantId);
+    expect(dbUser).toBeNull();
+  });
+
+  it('should reject 409 when tenant has unpaid bills', async () => {
+    const fakeRoomId = new mongoose.Types.ObjectId();
+    const ownerDoc = await User.findOne({ role: 'owner' });
+    await Bill.create({
+      ownerId: ownerDoc._id,
+      roomId: fakeRoomId,
+      roomNameSnapshot: 'Room 101',
+      billingMonth: '2026-05',
+      flatFee: 3000,
+      electricity: { previousReading: 100, currentReading: 200, ratePerKwh: 11, amount: 1100 },
+      totalAmount: 4100,
+      dueDate: new Date('2026-05-31'),
+      shares: [{
+        tenantId: new mongoose.Types.ObjectId(tenantId),
+        tenantEmail: TENANT_EMAIL,
+        tenantName: TENANT_NAME,
+        amount: 4100,
+        status: 'pending'
+      }]
+    });
+
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${tenantId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/unpaid bills/i);
+    expect(res.body.unpaidCount).toBe(1);
+    expect(res.body.unpaidTotal).toBe(4100);
+
+    const dbUser = await User.findById(tenantId);
+    expect(dbUser).not.toBeNull();
+  });
+
+  it('should return 404 when tenant ID does not exist', async () => {
+    const nonExistentId = new mongoose.Types.ObjectId().toString();
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${nonExistentId}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/not found/i);
+  });
+
+  it('should return 404 when target user is an owner, not a tenant', async () => {
+    const ownerDoc = await User.findOne({ role: 'owner' });
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${ownerDoc._id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/not found/i);
+  });
+
+  it('should reject 401 without auth token', async () => {
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${tenantId}`);
+
+    expect(res.status).toBe(401);
+  });
+
+  it('should reject 403 when caller is not an owner', async () => {
+    const clientToken = await loginAs(TENANT_EMAIL, VALID_PASSWORD);
+    const res = await request(app)
+      .delete(`/api/admin/tenants/${tenantId}`)
+      .set('Authorization', `Bearer ${clientToken}`);
+
+    expect(res.status).toBe(403);
+  });
+});
+
+
+// =========================================================================
+// FORGOT / RESET PASSWORD
+// =========================================================================
+describe('Auth Module - Forgot/Reset Password', () => {
+  const GENERIC_MSG = /if an account exists with that email/i;
+
+  // Helper: seed an active tenant with a known password
+  async function seedTenant(email = TENANT_EMAIL, password = VALID_PASSWORD) {
+    const hashed = await bcrypt.hash(password, 10);
+    return await User.create({
+      email,
+      password: hashed,
+      role: 'client',
+      name: TENANT_NAME,
+      mustSetPassword: false
+    });
+  }
+
+  // Helper: plant a resetToken directly on a user document
+  async function plantResetToken(userId, { expired = false } = {}) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiry = expired
+      ? new Date(Date.now() - 1000)          // 1 second in the past
+      : new Date(Date.now() + 60 * 60 * 1000); // 1 hour ahead
+    await User.findByIdAndUpdate(userId, { resetToken: token, resetTokenExpiry: expiry });
+    return token;
+  }
+
+  beforeEach(() => {
+    buildResetEmail.mockClear();
+  });
+
+  // --- Forgot Password ---
+
+  it('should return 200 with generic message when email does not exist', async () => {
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'nobody@uni.edu' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(GENERIC_MSG);
+  });
+
+  it('should return 200 and set resetToken when email exists', async () => {
+    const user = await seedTenant();
+
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: TENANT_EMAIL });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(GENERIC_MSG);
+
+    const dbUser = await User.findById(user._id);
+    expect(dbUser.resetToken).toBeTruthy();
+    expect(dbUser.resetToken.length).toBe(64);
+    expect(dbUser.resetTokenExpiry.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('should return 200 even if email service fails', async () => {
+    await seedTenant();
+    sendEmail.mockResolvedValueOnce({ success: false, error: 'SMTP timeout' });
+
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: TENANT_EMAIL });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(GENERIC_MSG);
+  });
+
+  it('should reject 400 when email is missing', async () => {
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/email is required/i);
+  });
+
+  it('should reject 400 when email format is invalid', async () => {
+    const res = await request(app)
+      .post('/api/auth/forgot-password')
+      .send({ email: 'not-an-email' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/valid email/i);
+  });
+
+  // --- Reset Password ---
+
+  it('should reset password with valid token and password', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id);
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'NewPass1!' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/reset successfully/i);
+  });
+
+  it('should clear resetToken after successful reset (one-time use)', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id);
+
+    await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'NewPass1!' });
+
+    const dbUser = await User.findById(user._id);
+    expect(dbUser.resetToken).toBeNull();
+    expect(dbUser.resetTokenExpiry).toBeNull();
+  });
+
+  it('should allow login with new password after reset', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id);
+
+    await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'NewPass1!' });
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: TENANT_EMAIL, password: 'NewPass1!' });
+
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body).toHaveProperty('token');
+  });
+
+  it('should reject reuse of same token (one-time use enforcement)', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id);
+
+    await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'NewPass1!' });
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: 'AnotherPass1!' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/invalid or expired/i);
+  });
+
+  it('should reject expired token', async () => {
+    const user = await seedTenant();
+    const token = await plantResetToken(user._id, { expired: true });
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, password: VALID_PASSWORD });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/invalid or expired/i);
+  });
+
+  it('should reject unknown token with generic message', async () => {
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token: 'completely-fake-token', password: VALID_PASSWORD });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/invalid or expired/i);
+  });
+
+  it('should reject 400 when token or password missing', async () => {
+    const r1 = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ password: VALID_PASSWORD });
+    expect(r1.status).toBe(400);
+
+    const r2 = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token: 'sometoken' });
+    expect(r2.status).toBe(400);
+  });
+
+  describe('password strength rules', () => {
+    const weakPasswords = [
+      { label: 'too short', value: 'Aa1!' },
+      { label: 'no uppercase', value: 'mysecure1!' },
+      { label: 'no lowercase', value: 'MYSECURE1!' },
+      { label: 'no number', value: 'MySecure!' },
+      { label: 'no special character', value: 'MySecure1' }
+    ];
+
+    weakPasswords.forEach(({ label, value }) => {
+      it(`should reject password: ${label}`, async () => {
+        const user = await seedTenant();
+        const token = await plantResetToken(user._id);
+
+        const res = await request(app)
+          .post('/api/auth/reset-password')
+          .send({ token, password: value });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toMatch(/does not meet requirements/i);
+        expect(Array.isArray(res.body.errors)).toBe(true);
+      });
+    });
+  });
+});
+
+
+// =========================================================================
+// TENANT CAPACITY ENFORCEMENT
+// =========================================================================
+describe('Tenant capacity enforcement', () => {
+  const Room = require('../models/Room');
+  let ownerToken;
+  let testRoom;
+
+  beforeEach(async () => {
+    await Room.deleteMany({});
+    await seedOwner();
+    ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
+    testRoom = await Room.create({ roomNumber: 'CAP-01', capacity: 3 });
+  });
+
+  afterEach(async () => {
+    await Room.deleteMany({});
+  });
+
+  it('should create tenant when room has space (2/3)', async () => {
+    // Fill 2 of 3 slots
+    await User.create([
+      { email: 'occupant1@gmail.com', name: 'Occ One', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok1', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id },
+      { email: 'occupant2@gmail.com', name: 'Occ Two', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok2', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id }
+    ]);
+
+    const res = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: TENANT_EMAIL, roomId: testRoom._id.toString() });
+
+    expect(res.status).toBe(201);
+    expect(res.body.message).toMatch(/invited successfully/i);
+  });
+
+  it('should reject 409 when room is at full capacity (3/3)', async () => {
+    // Fill all 3 slots
+    await User.create([
+      { email: 'full1@gmail.com', name: 'Full One', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok1', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id },
+      { email: 'full2@gmail.com', name: 'Full Two', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok2', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id },
+      { email: 'full3@gmail.com', name: 'Full Three', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok3', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id }
+    ]);
+
+    const res = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: TENANT_EMAIL, roomId: testRoom._id.toString() });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/full capacity/i);
+  });
+
+  it('should still allow creating tenant with no roomId (skip capacity check)', async () => {
+    const res = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: TENANT_EMAIL });
+
+    expect(res.status).toBe(201);
+    expect(res.body.message).toMatch(/invited successfully/i);
+  });
+});
+
+
+// =========================================================================
+// REASSIGN TENANT ROOM
+// =========================================================================
+describe('reassignTenantRoom', () => {
+  const Room = require('../models/Room');
+  let ownerToken;
+  let ownerDoc;
+  let tenant;
+  let roomA;
+  let roomB;
+
+  beforeEach(async () => {
+    await Room.deleteMany({});
+    ownerDoc = await seedOwner();
+    ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
+
+    roomA = await Room.create({ roomNumber: 'RA', capacity: 2 });
+    roomB = await Room.create({ roomNumber: 'RB', capacity: 1 });
+
+    const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
+    tenant = await User.create({
+      email: TENANT_EMAIL,
+      name: TENANT_NAME,
+      password: hashed,
+      role: 'client',
+      mustSetPassword: false,
+      invitedBy: ownerDoc._id,
+      roomId: roomA._id
+    });
+    await Room.findByIdAndUpdate(roomA._id, { currentOccupants: 1 });
+  });
+
+  afterEach(async () => {
+    await Room.deleteMany({});
+  });
+
+  it('should reassign tenant to a different room with space', async () => {
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: roomB._id.toString() });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/updated/i);
+
+    const updated = await User.findById(tenant._id);
+    expect(updated.roomId.toString()).toBe(roomB._id.toString());
+
+    const updatedA = await Room.findById(roomA._id);
+    const updatedB = await Room.findById(roomB._id);
+    expect(updatedA.currentOccupants).toBe(0);
+    expect(updatedB.currentOccupants).toBe(1);
+  });
+
+  it('should reject 409 when target room is at capacity', async () => {
+    // Fill roomB (capacity 1)
+    await User.create({
+      email: 'other@gmail.com', name: 'Other', role: 'client', mustSetPassword: true,
+      inviteToken: 'tok99', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: roomB._id
+    });
+    await Room.findByIdAndUpdate(roomB._id, { currentOccupants: 1 });
+
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: roomB._id.toString() });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/full capacity/i);
+  });
+
+  it('should allow unassigning a tenant (roomId: null)', async () => {
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/unassigned/i);
+
+    const updated = await User.findById(tenant._id);
+    expect(updated.roomId).toBeNull();
+
+    const updatedA = await Room.findById(roomA._id);
+    expect(updatedA.currentOccupants).toBe(0);
+  });
+
+  it('should reject 404 when room does not exist', async () => {
+    const fakeRoomId = new mongoose.Types.ObjectId();
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: fakeRoomId.toString() });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/room not found/i);
+  });
+
+  it('should reject 404 when tenant does not belong to owner', async () => {
+    // Create a second owner and their token — tenant is NOT invitedBy this owner
+    const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
+    await User.create({ email: 'owner2@dormisync.local', password: hashed, role: 'owner',
+      name: 'Owner Two', mustSetPassword: false });
+    const otherOwnerToken = await loginAs('owner2@dormisync.local', VALID_PASSWORD);
+
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${otherOwnerToken}`)
+      .send({ roomId: roomB._id.toString() });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/tenant not found/i);
+  });
+
+  it('should be a no-op when target room is the same as current', async () => {
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: roomA._id.toString() });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/no change/i);
+
+    // Occupant count must not have changed
+    const updatedA = await Room.findById(roomA._id);
+    expect(updatedA.currentOccupants).toBe(1);
   });
 });

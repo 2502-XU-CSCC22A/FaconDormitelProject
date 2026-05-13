@@ -41,11 +41,24 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  resetToken: {
+    type: String,
+    default: null
+  },
+  resetTokenExpiry: {
+    type: Date,
+    default: null
+  },
   invitedBy: {
-  
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     default: null
+  },
+  roomId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Room',
+    default: null,
+    index: { sparse: true }
   }
 }, {
   timestamps: true

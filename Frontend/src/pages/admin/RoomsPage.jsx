@@ -8,12 +8,10 @@ function RoomsPage() {
   const [rooms, setRooms] = useState([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [roomNumber, setRoomNumber] = useState('');
-  const [capacity, setCapacity] = useState(1);
+  const [capacity, setCapacity] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingRoomId, setDeletingRoomId] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingRoomId, setEditingRoomId] = useState(null);
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [selectedRoomToDelete, setSelectedRoomToDelete] = useState(null);
   const [formError, setFormError] = useState('');
@@ -22,10 +20,8 @@ function RoomsPage() {
 
   const resetForm = () => {
     setRoomNumber('');
-    setCapacity(1);
+    setCapacity('');
     setFormError('');
-    setIsEditing(false);
-    setEditingRoomId(null);
   };
 
   const handleOpenForm = () => {
@@ -39,18 +35,9 @@ function RoomsPage() {
     setIsFormOpen(false);
   };
 
-  const openEditRoom = (room) => {
-    setRoomNumber(room.roomNumber || '');
-    setCapacity(room.capacity || 1);
-    setIsEditing(true);
-    setEditingRoomId(room._id);
-    setSuccessMessage('');
-    setFormError('');
-    setIsFormOpen(true);
-  };
-
   const trimmedRoomNumber = roomNumber.trim();
-  const canSubmit = trimmedRoomNumber.length > 0 && capacity > 0 && !isSubmitting;
+  const parsedCapacity = parseInt(capacity, 10);
+  const canSubmit = trimmedRoomNumber.length > 0 && parsedCapacity >= 1 && !isSubmitting;
 
   const fetchRooms = async () => {
     try {
@@ -83,18 +70,16 @@ function RoomsPage() {
     setIsSubmitting(true);
 
     try {
-      const url = isEditing ? `${API_BASE}/${editingRoomId}` : `${API_BASE}/create`;
-      const method = isEditing ? 'PUT' : 'POST';
-      const response = await fetch(url, {
-        method,
+      const response = await fetch(`${API_BASE}/create`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ roomNumber: trimmedRoomNumber, capacity: Number(capacity) }),
+        body: JSON.stringify({ roomNumber: trimmedRoomNumber, capacity: parsedCapacity }),
       });
       const data = await response.json();
 
       if (response.ok) {
         await fetchRooms();
-        setSuccessMessage(isEditing ? 'Room updated successfully.' : 'Room created successfully.');
+        setSuccessMessage('Room created successfully.');
         resetForm();
         setIsFormOpen(false);
       } else {
@@ -170,7 +155,7 @@ function RoomsPage() {
 
       {isFormOpen && (
         <div className="border border-brand-orange rounded-lg p-6 mb-6 bg-orange-50 shadow-sm">
-          <h3 className="font-semibold text-lg mb-4">{isEditing ? 'Edit Room' : 'New Room'}</h3>
+          <h3 className="font-semibold text-lg mb-4">New Room</h3>
           <form onSubmit={handleSubmit}>
             <div className="mb-4">
               <label htmlFor="room-number" className="block text-sm font-medium text-gray-700 mb-1">
@@ -196,7 +181,7 @@ function RoomsPage() {
                 type="number"
                 value={capacity}
                 min={1}
-                onChange={(event) => setCapacity(Number(event.target.value))}
+                onChange={(event) => setCapacity(event.target.value)}
                 placeholder="1"
                 required
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-orange"
@@ -268,13 +253,6 @@ function RoomsPage() {
                     <p className="text-lg font-semibold capitalize">{room.status || 'available'}</p>
                   </div>
                   <div className="flex justify-start sm:justify-end items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openEditRoom(room)}
-                      className="rounded-md border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Edit
-                    </button>
                     <button
                       type="button"
                       onClick={() => openDeleteConfirmation(room)}
