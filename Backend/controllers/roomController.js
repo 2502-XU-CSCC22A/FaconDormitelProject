@@ -34,4 +34,30 @@ const createRoom = async (req, res) => {
   }
 };
 
-module.exports = { createRoom };
+const listRooms = async (req, res) => {
+  try {
+    const rooms = await Room.find().sort({ roomNumber: 1 });
+    res.status(200).json({ rooms });
+  } catch (error) {
+    console.error('List rooms error:', error);
+    res.status(500).json({ message: 'Server error during room listing' });
+  }
+};
+
+const deleteRoom = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const room = await Room.findById(id);
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    await room.deleteOne();
+    return res.status(200).json({ message: 'Room removed successfully' });
+  } catch (error) {
+    console.error('Delete room error:', error);
+    res.status(500).json({ message: 'Server error during room deletion' });
+  }
+};
+
+module.exports = { createRoom, listRooms, deleteRoom };

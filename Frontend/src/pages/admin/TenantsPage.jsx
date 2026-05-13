@@ -5,6 +5,7 @@ import InviteLinkModal from '../../components/admin/InviteLinkModal';
 import iconTenants from '../../assets/BigTenant2.png';
 
 const API_BASE = 'http://localhost:5000/api/admin/tenants';
+const ROOMS_API = 'http://localhost:5000/api/admin/rooms';
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -16,10 +17,14 @@ function TenantsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
+  // Rooms for assignment
+  const [rooms, setRooms] = useState([]);
+
   // Add Tenant form state
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
+  const [formRoomId, setFormRoomId] = useState('');
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -58,10 +63,18 @@ function TenantsPage() {
     fetchTenants();
   }, [fetchTenants]);
 
+  useEffect(() => {
+    fetch(ROOMS_API, { headers: { ...authHeader() } })
+      .then(r => r.json())
+      .then(data => setRooms(data.rooms ?? []))
+      .catch(() => {});
+  }, []);
+
   // Form handlers
   const resetForm = () => {
     setFormName('');
     setFormEmail('');
+    setFormRoomId('');
     setFormError('');
   };
 
@@ -87,7 +100,11 @@ function TenantsPage() {
       const response = await fetch(API_BASE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body: JSON.stringify({ name: formName.trim(), email: formEmail.trim() })
+        body: JSON.stringify({
+          name: formName.trim(),
+          email: formEmail.trim(),
+          ...(formRoomId ? { roomId: formRoomId } : {})
+        })
       });
       const data = await response.json();
 
@@ -221,11 +238,19 @@ function TenantsPage() {
               </label>
               <select
                 id="t-room"
-                disabled
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
-                title="Room assignment will be available once the Rooms module is built"
+                value={formRoomId}
+                onChange={(e) => setFormRoomId(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-orange"
               >
-                <option>No Room (Unassigned)</option>
+                <option value="">No Room (Unassigned)</option>
+                {rooms.map((r) => {
+                  const full = (r.currentOccupants ?? 0) >= r.capacity;
+                  return (
+                    <option key={r._id} value={r._id} disabled={full}>
+                      Room {r.roomNumber} ({r.currentOccupants ?? 0}/{r.capacity}){full ? ' — Full' : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -300,7 +325,9 @@ function TenantsPage() {
               </div>
               <div className="col-span-4 truncate">{t.email}</div>
               <div className="col-span-2 text-gray-500">
-                <span className="italic">Unassigned</span>
+                {t.room
+                  ? <span className="font-medium text-gray-800">{t.room.roomNumber}</span>
+                  : <span className="italic">Unassigned</span>}
               </div>
               <div className="col-span-2">{renderStatusBadge(t.status)}</div>
               <div className="col-span-1 text-right">
