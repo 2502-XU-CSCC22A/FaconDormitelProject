@@ -2,14 +2,19 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { logout } from '../../utils/auth';
 import logoImage from '../../assets/logo.png';
+import homeImage from '../../assets/Home.png';
+import tenantsImage from '../../assets/tenants.png';
+import billsImage from '../../assets/Bills.png';
+import paymentsImage from '../../assets/payments.png';
+import portalImage from '../../assets/portal.png';
 import IconPlaceholder from '../IconPlaceholder';
 
 const TABS = [
-  { to: '/admin/rooms',         label: 'Rooms',         icon: 'R' },
-  { to: '/admin/tenants',       label: 'Tenants',       icon: 'T' },
-  { to: '/admin/bills',         label: 'Bills',         icon: 'B' },
-  { to: '/admin/payments',      label: 'Payments',      icon: 'P' },
-  { to: '/admin/tenant-portal', label: 'Tenant Portal', icon: 'TP' },
+  { to: '/admin/rooms',         label: 'Rooms',         iconImage: homeImage },
+  { to: '/admin/tenants',       label: 'Tenants',       iconImage: tenantsImage },
+  { to: '/admin/bills',         label: 'Bills',         iconImage: billsImage },
+  { to: '/admin/payments',      label: 'Payments',      iconImage: paymentsImage },
+  { to: '/admin/tenant-portal', label: 'Tenant Portal', iconImage: portalImage },
 ];
 
 function AdminLayout() {
@@ -47,19 +52,23 @@ function AdminLayout() {
         {/* Tab navigation */}
         <nav className="bg-white rounded-t-lg border border-gray-200 px-2 pt-2 flex gap-1 overflow-x-auto">
           {TABS.map((tab) => (
-         <NavLink
-          key={tab.to}
-          to={tab.to}
-          className={({ isActive }) =>
-          `px-4 py-2 text-sm font-medium rounded-t-md transition flex items-center gap-2 whitespace-nowrap ` +
-           (isActive
-      ? 'bg-brand-orange/10 text-brand-orange border-b-2 border-brand-orange -mb-px'
-      : 'text-gray-600 hover:text-brand-orange hover:bg-gray-50')
-  }
->
-  <IconPlaceholder label={tab.iconChar} size="sm" />
-  {tab.label}
-</NavLink>
+            <NavLink
+              key={tab.to}
+              to={tab.to}
+              className={({ isActive }) =>
+                `px-4 py-2 text-sm font-medium rounded-t-md transition flex items-center gap-2 whitespace-nowrap ` +
+                (isActive
+                  ? 'bg-brand-orange/10 text-brand-orange border-b-2 border-brand-orange -mb-px'
+                  : 'text-gray-600 hover:text-brand-orange hover:bg-gray-50')
+              }
+            >
+              {tab.iconImage ? (
+                <img src={tab.iconImage} alt={`${tab.label} icon`} className="h-4 w-4" />
+              ) : (
+                <IconPlaceholder label={tab.icon} size="sm" />
+              )}
+              {tab.label}
+            </NavLink>
           ))}
         </nav>
 
