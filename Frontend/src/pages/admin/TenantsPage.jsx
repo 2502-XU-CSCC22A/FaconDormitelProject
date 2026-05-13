@@ -2,7 +2,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { authHeader } from '../../utils/auth';
 import InviteLinkModal from '../../components/admin/InviteLinkModal';
-import EditTenantRoomModal from '../../components/admin/EditTenantRoomModal';
 import iconTenants from '../../assets/BigTenant2.png';
 
 const API_BASE = 'http://localhost:5000/api/admin/tenants';
@@ -31,9 +30,6 @@ function TenantsPage() {
 
   // Invite modal state - populated after a successful create
   const [inviteResult, setInviteResult] = useState(null);
-
-  // Edit room modal state
-  const [editTarget, setEditTarget] = useState(null);
 
   // Delete tenant modal state
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -334,14 +330,7 @@ function TenantsPage() {
                   : <span className="italic">Unassigned</span>}
               </div>
               <div className="col-span-2">{renderStatusBadge(t.status)}</div>
-              <div className="col-span-1 text-right flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditTarget(t)}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium transition"
-                >
-                  Edit
-                </button>
+              <div className="col-span-1 text-right">
                 <button
                   type="button"
                   onClick={() => openDeleteModal(t)}
@@ -409,15 +398,6 @@ function TenantsPage() {
             )}
           </div>
         </div>
-      )}
-
-      {editTarget && (
-        <EditTenantRoomModal
-          tenant={editTarget}
-          rooms={rooms}
-          onClose={() => setEditTarget(null)}
-          onSaved={() => { setEditTarget(null); fetchTenants(); }}
-        />
       )}
 
        {inviteResult && (

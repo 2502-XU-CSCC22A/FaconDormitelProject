@@ -228,20 +228,6 @@ const createTenant = async (req, res) => {
     if (!trimmedName || trimmedName.length < 2) {
       return res.status(400).json({ message: 'Name is required (minimum 2 characters)' });
     }
-    // Capacity check — must run before creating/updating any User document
-    if (roomId) {
-      const room = await Room.findById(roomId);
-      if (!room) {
-        return res.status(404).json({ message: 'Room not found' });
-      }
-      const occupantCount = await User.countDocuments({ roomId, role: 'client' });
-      if (occupantCount >= room.capacity) {
-        return res.status(409).json({
-          message: `Room ${room.roomNumber} is at full capacity (${room.capacity}/${room.capacity})`
-        });
-      }
-    }
-
     const normalizedEmail = email.trim().toLowerCase();
     // Look up any existing user with this email
     const existing = await User.findOne({ email: normalizedEmail });
@@ -284,12 +270,7 @@ const createTenant = async (req, res) => {
       });
       await user.save();
     }
-
-    if (roomId) {
-      await Room.findByIdAndUpdate(roomId, { $inc: { currentOccupants: 1 } });
-    }
-
-    // Build the invite link the owner will share with the tenant.
+ // Build the invite link the owner will share with the tenant.
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const inviteLink = `${frontendUrl}/set-password?token=${inviteToken}`;
 
@@ -470,10 +451,6 @@ const deleteTenant = async (req, res) => {
       });
     }
 
-    if (tenant.roomId) {
-      await Room.findByIdAndUpdate(tenant.roomId, { $inc: { currentOccupants: -1 } });
-    }
-
     await User.findByIdAndDelete(id);
 
     return res.status(200).json({
@@ -566,80 +543,5 @@ const resetPassword = async (req, res) => {
   }
 };
 
-// --- 11. REASSIGN TENANT ROOM (OWNER-ONLY) ---
-// PATCH /api/admin/tenants/:id/room   body: { roomId: ObjectId | null }
-// Moves a tenant to a different room, or unassigns them (roomId: null).
-const reassignTenantRoom = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { roomId } = req.body;
-
-    if (!mongoose.isValidObjectId(id)) {
-      return res.status(404).json({ message: 'Tenant not found' });
-    }
-
-    // Owner-scoped: only tenants this owner invited
-    const tenant = await User.findOne({ _id: id, role: 'client', invitedBy: req.user.userId });
-    if (!tenant) {
-      return res.status(404).json({ message: 'Tenant not found' });
-    }
-
-    const oldRoomId = tenant.roomId ? tenant.roomId.toString() : null;
-
-    // Unassign path
-    if (!roomId) {
-      tenant.roomId = null;
-      await tenant.save();
-      if (oldRoomId) {
-        await Room.findByIdAndUpdate(oldRoomId, { $inc: { currentOccupants: -1 } });
-      }
-      return res.status(200).json({ message: 'Tenant unassigned from room', tenant: { _id: tenant._id, roomId: null } });
-    }
-
-    if (!mongoose.isValidObjectId(roomId)) {
-      return res.status(404).json({ message: 'Room not found' });
-    }
-
-    // No-op: already in this room
-    if (oldRoomId === roomId.toString()) {
-      return res.status(200).json({ message: 'No change', tenant: { _id: tenant._id, roomId: tenant.roomId } });
-    }
-
-    const room = await Room.findById(roomId);
-    if (!room) {
-      return res.status(404).json({ message: 'Room not found' });
-    }
-
-    // Capacity check — exclude this tenant in case they're somehow already counted
-    const occupantCount = await User.countDocuments({
-      roomId: room._id,
-      role: 'client',
-      _id: { $ne: tenant._id }
-    });
-    if (occupantCount >= room.capacity) {
-      return res.status(409).json({
-        message: `Room ${room.roomNumber} is at full capacity (${room.capacity}/${room.capacity})`
-      });
-    }
-
-    // Swap rooms
-    if (oldRoomId) {
-      await Room.findByIdAndUpdate(oldRoomId, { $inc: { currentOccupants: -1 } });
-    }
-    tenant.roomId = room._id;
-    await tenant.save();
-    await Room.findByIdAndUpdate(room._id, { $inc: { currentOccupants: 1 } });
-
-    return res.status(200).json({
-      message: 'Tenant room updated',
-      tenant: { _id: tenant._id, roomId: tenant.roomId }
-    });
-
-  } catch (error) {
-    console.error('Reassign tenant room error:', error);
-    return res.status(500).json({ message: 'Server error during room reassignment' });
-  }
-};
-
-module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants, deleteTenant, forgotPassword, resetPassword, reassignTenantRoom };
+module.exports = { register, login, getMe, logout, createTenant, setPasswordWithToken, listTenants, deleteTenant, forgotPassword, resetPassword };
 
