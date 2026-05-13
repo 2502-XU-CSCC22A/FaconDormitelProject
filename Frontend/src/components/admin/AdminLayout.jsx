@@ -12,7 +12,8 @@ import iconHome from '../../assets/Home.png';
 import iconTenants from '../../assets/tenants.png';
 import iconBills from '../../assets/Bills.png';
 import iconPayments from '../../assets/payments.png';
-import iconTenantPortal from '../../assets/tenantportal.png';
+import iconTenantPortal from '../../assets/tenantportal3.png';
+
 
 const TABS = [
   { to: '/admin/rooms',         label: 'Rooms',         icon: 'R',  iconSrc: iconHome },

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createTenant, listTenants, deleteTenant } = require('../controllers/authController');
+const { createTenant, listTenants, deleteTenant, reassignTenantRoom } = require('../controllers/authController');
 const { createBill, listBills, getBill, markShareAsPaid } = require('../controllers/billController');
 const { listPayments, getPendingPayments, approvePayment, rejectPayment, voidPayment } = require('../controllers/paymentController');
 const { authMiddleware, requireRole } = require('../middleware/authMiddleware');
@@ -14,18 +14,17 @@ router.use(requireRole('owner'));
 router.post('/tenants', createTenant);
 router.get('/tenants', listTenants);
 router.delete('/tenants/:id', deleteTenant);
+router.patch('/tenants/:id/room', reassignTenantRoom);
 // TODO(module-b): replace this stub when teammate's Module B (Rooms) lands.
 // Returns minimal room list for the bill creation dropdown.
 router.get('/rooms', async (req, res) => {
   try {
-    const mongoose = require('mongoose');
-    const ownerObjectId = new mongoose.Types.ObjectId(req.user.userId);
-    const rooms = await Room.find({ ownerId: ownerObjectId })
-      .select('_id roomNumber name capacity')
+    const rooms = await Room.find({})
+      .select('_id roomNumber name capacity currentOccupants status')
       .lean();
     return res.status(200).json({ rooms });
   } catch (err) {
-    console.error('[GET /api/admin/rooms stub] error:', err);
+    console.error('[GET /api/admin/rooms] error:', err);
     return res.status(500).json({ message: 'Server error fetching rooms' });
   }
 });

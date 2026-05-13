@@ -1,0 +1,49 @@
+[33mcommit 51b7bda3a66b34108837fc87b52fa88c16deffe4[m
+Author: Joseph-Laurente123 <20220025182@my.xu.edu.ph>
+Date:   Wed May 13 01:57:57 2026 -0400
+
+    added room management, fixed room adding bug, fixed tenants room assigned, bills occupancy.
+
+ .gitignore                                         |   4 [32m+[m[31m-[m
+ Backend/.gitignore                                 |   4 [32m+[m
+ Backend/Middleware/uploadMiddleware.js             |  29 [32m+[m
+ Backend/config/billing.js                          |   5 [32m+[m
+ Backend/controllers/authController.js              | 302 [32m+++++++++[m[31m-[m
+ Backend/controllers/billController.js              | 224 [32m+++++++[m
+ Backend/controllers/paymentController.js           | 296 [32m++++++++++[m
+ Backend/models/Bill.js                             |  40 [32m++[m
+ Backend/models/Payment.js                          |  29 [32m+[m
+ Backend/models/User.js                             |  15 [32m+[m[31m-[m
+ Backend/package-lock.json                          | 163 [32m++++[m[31m-[m
+ Backend/package.json                               |   5 [32m+[m[31m-[m
+ Backend/routes/admin.js                            |  40 [32m+[m[31m-[m
+ Backend/routes/auth.js                             |   6 [32m+[m[31m-[m
+ Backend/routes/me.js                               |  21 [32m+[m
+ Backend/server.js                                  |  13 [32m+[m[31m-[m
+ Backend/services/emailService.js                   | 211 [32m+++++++[m
+ Backend/tests/auth.test.js                         | 653 [32m+++++++++++++++++++[m[31m--[m
+ Backend/tests/bills.test.js                        | 573 [32m++++++++++++++++++[m
+ Backend/tests/payments.test.js                     | 498 [32m++++++++++++++++[m
+ Backend/uploads/payment-proofs/.gitkeep            |   0
+ Frontend/src/App.jsx                               |   4 [32m+[m
+ Frontend/src/assets/BigBills2.png                  | Bin [31m0[m -> [32m1750[m bytes
+ Frontend/src/assets/BigHome2.png                   | Bin [31m0[m -> [32m1988[m bytes
+ Frontend/src/assets/BigTenant2.png                 | Bin [31m0[m -> [32m1645[m bytes
+ Frontend/src/assets/tenantportal.png               | Bin [31m0[m -> [32m1152[m bytes
+ Frontend/src/assets/tenantportal3.png              | Bin [31m0[m -> [32m575[m bytes
+ Frontend/src/components/admin/AdminLayout.jsx      |  51 [32m+[m[31m-[m
+ Frontend/src/components/admin/BillDetailModal.jsx  | 320 [32m++++++++++[m
+ Frontend/src/components/admin/CreateBillModal.jsx  | 325 [32m++++++++++[m
+ .../src/components/admin/EditTenantRoomModal.jsx   | 127 [32m++++[m
+ Frontend/src/components/admin/InviteLinkModal.jsx  |  61 [32m+[m[31m-[m
+ .../src/components/admin/PaymentDetailModal.jsx    | 573 [32m++++++++++++++++++[m
+ Frontend/src/pages/DashboardPage.jsx               | 256 [32m++++++[m[31m--[m
+ Frontend/src/pages/ForgotPasswordPage.jsx          | 101 [32m++++[m
+ Frontend/src/pages/LoginPage.jsx                   |  56 [32m+[m[31m-[m
+ Frontend/src/pages/ResetPasswordPage.jsx           | 187 [32m++++++[m
+ Frontend/src/pages/SetPasswordPage.jsx             |  73 [32m++[m[31m-[m
+ Frontend/src/pages/admin/BillsPage.jsx             | 180 [32m+++++[m[31m-[m
+ Frontend/src/pages/admin/PaymentsPage.jsx          | 295 [32m+++++++++[m[31m-[m
+ Frontend/src/pages/admin/RoomsPage.jsx             |  42 [32m+[m[31m-[m
+ Frontend/src/pages/admin/TenantsPage.jsx           | 202 [32m++++++[m[31m-[m
+ 42 files changed, 5739 insertions(+), 245 deletions(-)
