@@ -1,4 +1,4 @@
-// src/pages/DashboardPage.jsx
+// src/pages/\Page.jsx
 //
 // Tenant landing page (role: client). Fetches and displays the tenant's bills.
 // Owners are bounced to /admin/tenants by the useEffect below.
