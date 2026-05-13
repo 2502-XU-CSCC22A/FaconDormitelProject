@@ -2,6 +2,7 @@ const { sendEmail, buildInviteEmail, buildResetEmail } = require('../services/em
 const dns = require('dns').promises;
 const User = require('../models/User');
 const Bill = require('../models/Bill');
+const Room = require('../models/Room');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -204,7 +205,7 @@ const logout = async (req, res) => {
 // but DO NOT set a password — the tenant sets one via an invite link.
 const createTenant = async (req, res) => {
   try {
-    const { name, email } = req.body;
+    const { name, email, roomId } = req.body;
 
     // Field presence
     if (!email) {
@@ -245,6 +246,7 @@ const createTenant = async (req, res) => {
         existing.inviteToken = inviteToken;
         existing.inviteTokenExpiry = inviteTokenExpiry;
         existing.invitedBy = req.user.userId;
+        if (roomId) existing.roomId = roomId;
         await existing.save();
         user = existing;
       } else {
@@ -263,7 +265,8 @@ const createTenant = async (req, res) => {
         mustSetPassword: true,
         inviteToken,
         inviteTokenExpiry,
-        invitedBy: req.user.userId
+        invitedBy: req.user.userId,
+        ...(roomId ? { roomId } : {})
       });
       await user.save();
     }
@@ -386,18 +389,19 @@ const listTenants = async (req, res) => {
   try {
     const tenants = await User.find(
       { role: 'client' },
-      // Project only the fields the UI needs — never include passwords or tokens
-      { name: 1, email: 1, mustSetPassword: 1, inviteTokenExpiry: 1, createdAt: 1 }
-    ).sort({ createdAt: -1 });
+      { name: 1, email: 1, mustSetPassword: 1, inviteTokenExpiry: 1, createdAt: 1, roomId: 1 }
+    )
+      .populate('roomId', 'roomNumber name')
+      .sort({ createdAt: -1 });
 
-    // Transform into a clean shape for the frontend
     const formatted = tenants.map((t) => ({
       _id: t._id,
       name: t.name || '',
       email: t.email,
       status: t.mustSetPassword ? 'pending' : 'active',
       inviteExpiresAt: t.mustSetPassword ? t.inviteTokenExpiry : null,
-      createdAt: t.createdAt
+      createdAt: t.createdAt,
+      room: t.roomId ? { _id: t.roomId._id, roomNumber: t.roomId.roomNumber, name: t.roomId.name } : null
     }));
 
     return res.status(200).json({ tenants: formatted });

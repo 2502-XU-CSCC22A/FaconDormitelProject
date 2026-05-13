@@ -2,6 +2,11 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { logout } from '../../utils/auth';
 import logoImage from '../../assets/logo.png';
+import homeImage from '../../assets/Home.png';
+import tenantsImage from '../../assets/tenants.png';
+import billsImage from '../../assets/Bills.png';
+import paymentsImage from '../../assets/payments.png';
+import portalImage from '../../assets/portal.png';
 import IconPlaceholder from '../IconPlaceholder';
 import iconHome from '../../assets/Home.png';
 import iconTenants from '../../assets/tenants.png';
