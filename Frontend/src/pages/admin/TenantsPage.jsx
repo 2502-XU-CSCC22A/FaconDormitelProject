@@ -338,7 +338,7 @@ function TenantsPage() {
                 <button
                   type="button"
                   onClick={() => setEditTarget(t)}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium transition"
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium transition mr-2"
                 >
                   Edit
                 </button>
