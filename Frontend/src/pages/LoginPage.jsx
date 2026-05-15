@@ -64,7 +64,7 @@ function LoginPage() {
       if (response.ok) {
         setAuth(data.token, data.user);
         setMessage('Login successful!');
-        const destination = data.user.role === 'owner' ? '/admin/tenants' : '/dashboard';
+        const destination = data.user.role === 'owner' ? '/admin/tenants' : '/portal';
         setTimeout(() => navigate(destination), 800);
       } else {
         setMessage(data.message || 'Login failed');

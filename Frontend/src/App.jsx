@@ -14,6 +14,14 @@ import BillsPage from './pages/admin/BillsPage';
 import PaymentsPage from './pages/admin/PaymentsPage';
 import TenantPortalPage from './pages/admin/TenantPortalPage';
 
+import TenantLayout from './components/tenant/TenantLayout';
+import HomePage from './pages/tenant/HomePage';
+import MyRoomPage from './pages/tenant/MyRoomPage';
+import BillingPage from './pages/tenant/BillingPage';
+import TenantPaymentsPage from './pages/tenant/PaymentsPage';
+import NotifsPage from './pages/tenant/NotifsPage';
+import ProfilePage from './pages/tenant/ProfilePage';
+
 function App() {
   return (
     <Routes>
@@ -32,6 +40,23 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      {/* Tenant portal — multi-page (replaces /dashboard over time) */}
+      <Route
+        path="/portal"
+        element={
+          <ProtectedRoute>
+            <TenantLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<HomePage />} />
+        <Route path="my-room"  element={<MyRoomPage />} />
+        <Route path="billing"  element={<BillingPage />} />
+        <Route path="payments" element={<TenantPaymentsPage />} />
+        <Route path="notifs"   element={<NotifsPage />} />
+        <Route path="profile"  element={<ProfilePage />} />
+      </Route>
 
       {/* Admin (owner) panel — protected + role-gated */}
       <Route
