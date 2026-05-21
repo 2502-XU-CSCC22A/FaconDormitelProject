@@ -62,6 +62,10 @@ function tomorrow() {
   return new Date(Date.now() + 86400000).toISOString().split('T')[0];
 }
 
+function daysAgo(n) {
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+}
+
 function submitPayment(token, shareId, opts = {}) {
   return request(app)
     .post('/api/me/payments')
@@ -494,5 +498,105 @@ describe('Payments Module - POST /api/admin/payments/:id/void', () => {
       .send({ reason: 'Second attempt' });
 
     expect(res.status).toBe(400);
+  });
+});
+
+
+// =========================================================================
+// Bill share status lifecycle — payment interactions
+// =========================================================================
+describe('Bill share status lifecycle — payment interactions', () => {
+  let ownerToken, tenantToken, room;
+
+  beforeEach(async () => {
+    await seedOwner();
+    ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
+    room = await seedRoom('A101');
+    await seedTenant('tenant1@test.com', room._id);
+    tenantToken = await loginAs('tenant1@test.com', VALID_PASSWORD);
+  });
+
+  it('approving payment on overdue share sets status to paid', async () => {
+    // dueDate 1 day ago, grace = 5 days → within overdue window
+    const billRes = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        roomId: room._id,
+        billingMonth: '2026-03',
+        electricity: { previousReading: 0, currentReading: 100 },
+        dueDate: daysAgo(1),
+        gracePeriodDays: 5
+      });
+    expect(billRes.status).toBe(201);
+    const share = billRes.body.bill.shares.find(s => s.tenantEmail === 'tenant1@test.com');
+    expect(share.status).toBe('overdue');
+
+    const { body: { payment: { _id: paymentId } } } = await submitPayment(tenantToken, share._id);
+    const approveRes = await request(app)
+      .post(`/api/admin/payments/${paymentId}/approve`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(approveRes.status).toBe(200);
+
+    const bill = await Bill.findById(billRes.body.bill._id);
+    expect(bill.shares.id(share._id).status).toBe('paid');
+  });
+
+  it('approving payment on unpaid share sets status to settled', async () => {
+    // dueDate 7 days ago, grace = 5 days → past grace window = unpaid
+    const billRes = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        roomId: room._id,
+        billingMonth: '2026-03',
+        electricity: { previousReading: 0, currentReading: 100 },
+        dueDate: daysAgo(7),
+        gracePeriodDays: 5
+      });
+    expect(billRes.status).toBe(201);
+    const share = billRes.body.bill.shares.find(s => s.tenantEmail === 'tenant1@test.com');
+    expect(share.status).toBe('unpaid');
+
+    const { body: { payment: { _id: paymentId } } } = await submitPayment(tenantToken, share._id);
+    const approveRes = await request(app)
+      .post(`/api/admin/payments/${paymentId}/approve`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(approveRes.status).toBe(200);
+
+    const bill = await Bill.findById(billRes.body.bill._id);
+    expect(bill.shares.id(share._id).status).toBe('settled');
+  });
+
+  it('voiding approved payment re-ticks share to current correct state', async () => {
+    // dueDate 1 day ago, grace = 5 → overdue; void must restore 'overdue', not hardcode 'pending'
+    const billRes = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        roomId: room._id,
+        billingMonth: '2026-03',
+        electricity: { previousReading: 0, currentReading: 100 },
+        dueDate: daysAgo(1),
+        gracePeriodDays: 5
+      });
+    expect(billRes.status).toBe(201);
+    const share = billRes.body.bill.shares.find(s => s.tenantEmail === 'tenant1@test.com');
+
+    const { body: { payment: { _id: paymentId } } } = await submitPayment(tenantToken, share._id);
+    await request(app)
+      .post(`/api/admin/payments/${paymentId}/approve`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+
+    const voidRes = await request(app)
+      .post(`/api/admin/payments/${paymentId}/void`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ reason: 'Test void' });
+    expect(voidRes.status).toBe(200);
+
+    const bill = await Bill.findById(billRes.body.bill._id);
+    const updatedShare = bill.shares.id(share._id);
+    expect(updatedShare.status).toBe('overdue');
+    expect(updatedShare.paidAt).toBeNull();
   });
 });

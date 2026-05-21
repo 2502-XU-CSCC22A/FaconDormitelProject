@@ -1,6 +1,7 @@
 // src/pages/admin/PaymentsPage.jsx
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { authHeader } from '../../utils/auth';
+import { getShareDisplayStatus } from '../../utils/billStatus';
 import PaymentDetailModal from '../../components/admin/PaymentDetailModal';
 import iconPayments from '../../assets/payments.png';
 
@@ -29,19 +30,16 @@ function fmt(n) {
   });
 }
 
-function isOverdue(share) {
-  return share.status === 'pending' && new Date(share.dueDate) < new Date();
-}
-
 function ShareStatusBadge({ share }) {
-  if (share.status === 'paid') {
+  const displayStatus = getShareDisplayStatus(share);
+  if (displayStatus === 'paid') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-        Paid
+        Settled
       </span>
     );
   }
-  if (isOverdue(share)) {
+  if (displayStatus === 'overdue') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
         Overdue
@@ -145,22 +143,22 @@ function PaymentsPage() {
   }, [bills]);
 
   const totalCount = allShares.length;
-  const paidCount = allShares.filter((s) => s.status === 'paid').length;
-  const unpaidCount = allShares.filter((s) => s.status === 'pending').length;
+  const paidCount = allShares.filter((s) => getShareDisplayStatus(s) === 'paid').length;
+  const unpaidCount = allShares.filter((s) => getShareDisplayStatus(s) !== 'paid').length;
   const totalAmount = allShares.reduce((sum, s) => sum + (s.amount ?? 0), 0);
   const paidAmount = allShares
-    .filter((s) => s.status === 'paid')
+    .filter((s) => getShareDisplayStatus(s) === 'paid')
     .reduce((sum, s) => sum + (s.amount ?? 0), 0);
   const unpaidAmount = allShares
-    .filter((s) => s.status === 'pending')
+    .filter((s) => getShareDisplayStatus(s) !== 'paid')
     .reduce((sum, s) => sum + (s.amount ?? 0), 0);
   const collectionRate = totalCount === 0
     ? 0
     : Math.round((paidCount / totalCount) * 100);
 
   const filteredShares = useMemo(() => {
-    if (activeFilter === 'paid') return allShares.filter((s) => s.status === 'paid');
-    if (activeFilter === 'unpaid') return allShares.filter((s) => s.status === 'pending');
+    if (activeFilter === 'paid') return allShares.filter((s) => getShareDisplayStatus(s) === 'paid');
+    if (activeFilter === 'unpaid') return allShares.filter((s) => getShareDisplayStatus(s) !== 'paid');
     return allShares;
   }, [allShares, activeFilter]);
 

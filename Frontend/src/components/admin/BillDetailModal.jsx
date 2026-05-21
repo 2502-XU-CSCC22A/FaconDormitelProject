@@ -1,6 +1,7 @@
 // src/components/admin/BillDetailModal.jsx
 import { useState, useEffect, useCallback } from 'react';
 import { authHeader } from '../../utils/auth';
+import { getBillDisplayStatus, getShareDisplayStatus } from '../../utils/billStatus';
 
 const API = 'http://localhost:5000';
 
@@ -49,17 +50,15 @@ function fmt(n) {
 }
 
 function BillStatusBadge({ bill }) {
-  const allPaid = bill.shares.every(s => s.status === 'paid');
-  const anyOverdue = bill.shares.some(s => s.overdue);
-
-  if (allPaid) {
+  const status = getBillDisplayStatus(bill);
+  if (status === 'fully-paid') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
         Fully Paid
       </span>
     );
   }
-  if (anyOverdue) {
+  if (status === 'overdue') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
         Overdue
@@ -74,14 +73,15 @@ function BillStatusBadge({ bill }) {
 }
 
 function ShareStatusBadge({ share }) {
-  if (share.status === 'paid') {
+  const displayStatus = getShareDisplayStatus(share);
+  if (displayStatus === 'paid') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-        Paid
+        Settled
       </span>
     );
   }
-  if (share.overdue) {
+  if (displayStatus === 'overdue') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
         Overdue
@@ -257,7 +257,7 @@ function BillDetailModal({ billId, onClose, onBillUpdated }) {
                       <p className="text-xs text-gray-400 truncate">
                         {share.tenantEmail}
                       </p>
-                      {share.status === 'paid' && share.paidAt && (
+                      {(share.status === 'paid' || share.status === 'settled') && share.paidAt && (
                         <p className="text-xs text-green-600 mt-0.5">
                           Paid {formatDate(share.paidAt)}
                         </p>
@@ -270,7 +270,7 @@ function BillDetailModal({ billId, onClose, onBillUpdated }) {
                         <ShareStatusBadge share={share} />
                       </div>
 
-                      {share.status === 'pending' && (
+                      {(share.status === 'pending' || share.status === 'overdue' || share.status === 'unpaid') && (
                         <button
                           type="button"
                           onClick={() => handleMarkPaid(share._id)}

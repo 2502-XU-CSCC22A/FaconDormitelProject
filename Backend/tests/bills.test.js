@@ -296,26 +296,27 @@ describe('Bills Module - listBills', () => {
     expect(res.body.bills[0].roomNameSnapshot).toBe('A101');
   });
 
-  it('should set overdue: true on pending shares whose dueDate is in the past', async () => {
+  it('should tick share status to overdue when dueDate is in the past within grace', async () => {
     const createRes = await postBill(ownerToken, room._id, '2024-03', { previousReading: 0, currentReading: 100 });
-    await Bill.updateOne({ _id: createRes.body.bill._id }, { $set: { dueDate: new Date('2020-01-01') } });
+    // 2 days ago, default grace = 5 → overdue window
+    await Bill.updateOne({ _id: createRes.body.bill._id }, { $set: { dueDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) } });
 
     const res = await request(app)
       .get('/api/admin/bills')
       .set('Authorization', `Bearer ${ownerToken}`);
 
     expect(res.status).toBe(200);
-    res.body.bills[0].shares.forEach(s => expect(s.overdue).toBe(true));
+    res.body.bills[0].shares.forEach(s => expect(s.status).toBe('overdue'));
   });
 
-  it('should set overdue: false on pending shares whose dueDate is in the future', async () => {
+  it('should leave share status as pending when dueDate is in the future', async () => {
     await postBill(ownerToken, room._id, '2024-03', { previousReading: 0, currentReading: 100 });
 
     const res = await request(app)
       .get('/api/admin/bills')
       .set('Authorization', `Bearer ${ownerToken}`);
 
-    res.body.bills[0].shares.forEach(s => expect(s.overdue).toBe(false));
+    res.body.bills[0].shares.forEach(s => expect(s.status).toBe('pending'));
   });
 });
 
@@ -465,9 +466,9 @@ describe('Bills Module - getMyBills', () => {
     await seedTenant('tenant1@test.com', room._id);
     const tenantToken = await loginAs('tenant1@test.com', VALID_PASSWORD);
 
-    // Bill 1 — overdue
+    // Bill 1 — overdue (2 days ago, within default 5-day grace)
     const res1 = await postBill(ownerToken, room._id, '2024-01', { previousReading: 0, currentReading: 100 });
-    await Bill.updateOne({ _id: res1.body.bill._id }, { $set: { dueDate: new Date('2020-01-01') } });
+    await Bill.updateOne({ _id: res1.body.bill._id }, { $set: { dueDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) } });
 
     // Bill 2 — pending, not yet overdue
     await postBill(ownerToken, room._id, '2024-02', { previousReading: 100, currentReading: 200 });
@@ -568,6 +569,122 @@ describe('Bills Module - snapshot integrity', () => {
     expect(share).toBeDefined();
     expect(share.tenantEmail).toBe('tenant1@test.com');
     expect(share.tenantName).toBeTruthy();
+  });
+});
+
+// =========================================================================
+// BILL SHARE STATUS STATE MACHINE
+// =========================================================================
+describe('Bill share status state machine', () => {
+  let ownerToken;
+  let room;
+
+  beforeEach(async () => {
+    await seedOwner();
+    ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
+    room = await seedRoom('SM01');
+    await seedTenant('sm-tenant@test.com', room._id);
+  });
+
+  it('newly created bill with future dueDate has status=pending', async () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const res = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: room._id, billingMonth: '2030-01', electricity: { previousReading: 0, currentReading: 10 }, dueDate: future });
+    expect(res.status).toBe(201);
+    res.body.bill.shares.forEach(s => expect(s.status).toBe('pending'));
+  });
+
+  it('bill with past dueDate but within grace period has status=overdue after tick (via listBills)', async () => {
+    // dueDate 1 day ago, grace=5d → still within grace window → overdue
+    const yesterday = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: room._id, billingMonth: '2030-02', electricity: { previousReading: 0, currentReading: 10 }, dueDate: yesterday, gracePeriodDays: 5 });
+
+    const res = await request(app)
+      .get('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(res.status).toBe(200);
+    const bill = res.body.bills.find(b => b.billingMonth === '2030-02');
+    bill.shares.forEach(s => expect(s.status).toBe('overdue'));
+  });
+
+  it('bill past grace period has status=unpaid after tick', async () => {
+    // dueDate 10 days ago, grace=5d → past overdueEnd → unpaid
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: room._id, billingMonth: '2030-03', electricity: { previousReading: 0, currentReading: 10 }, dueDate: tenDaysAgo, gracePeriodDays: 5 });
+
+    const res = await request(app)
+      .get('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(res.status).toBe(200);
+    const bill = res.body.bills.find(b => b.billingMonth === '2030-03');
+    bill.shares.forEach(s => expect(s.status).toBe('unpaid'));
+  });
+
+  it('paid shares are not modified by tick (terminal state)', async () => {
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const createRes = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: room._id, billingMonth: '2030-04', electricity: { previousReading: 0, currentReading: 10 }, dueDate: tenDaysAgo, gracePeriodDays: 5 });
+    const billId = createRes.body.bill._id;
+    const shareId = createRes.body.bill.shares[0]._id;
+
+    // Manually force status to 'paid' in DB
+    await Bill.findOneAndUpdate({ _id: billId, 'shares._id': shareId }, { $set: { 'shares.$.status': 'paid' } });
+
+    const res = await request(app)
+      .get('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const bill = res.body.bills.find(b => b.billingMonth === '2030-04');
+    const share = bill.shares.find(s => s._id === shareId);
+    expect(share.status).toBe('paid');
+  });
+
+  it('settled shares are not modified by tick (terminal state)', async () => {
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const createRes = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: room._id, billingMonth: '2030-05', electricity: { previousReading: 0, currentReading: 10 }, dueDate: tenDaysAgo, gracePeriodDays: 5 });
+    const billId = createRes.body.bill._id;
+    const shareId = createRes.body.bill.shares[0]._id;
+
+    await Bill.findOneAndUpdate({ _id: billId, 'shares._id': shareId }, { $set: { 'shares.$.status': 'settled' } });
+
+    const res = await request(app)
+      .get('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`);
+    const bill = res.body.bills.find(b => b.billingMonth === '2030-05');
+    const share = bill.shares.find(s => s._id === shareId);
+    expect(share.status).toBe('settled');
+  });
+
+  it('createBill accepts gracePeriodDays override and saves it', async () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const res = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: room._id, billingMonth: '2030-06', electricity: { previousReading: 0, currentReading: 10 }, dueDate: future, gracePeriodDays: 10 });
+    expect(res.status).toBe(201);
+    expect(res.body.bill.gracePeriodDays).toBe(10);
+  });
+
+  it('createBill defaults gracePeriodDays to 5 when not provided', async () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const res = await request(app)
+      .post('/api/admin/bills')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: room._id, billingMonth: '2030-07', electricity: { previousReading: 0, currentReading: 10 }, dueDate: future });
+    expect(res.status).toBe(201);
+    expect(res.body.bill.gracePeriodDays).toBe(5);
   });
 });
 

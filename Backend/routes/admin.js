@@ -38,10 +38,24 @@ router.get('/bills/:id', getBill);
 router.post('/bills/:billId/shares/:shareId/pay', markShareAsPaid);
 
 // Summary dashboard
+// Compute what a share's status SHOULD be right now, regardless of what's
+// stored in the DB.  Terminal states ('paid', 'settled') are always trusted;
+// non-terminal states are re-derived from dueDate so the summary is correct
+// even if the per-bill tick hasn't run yet.
+function effectiveShareStatus(shareStatus, billDueDate, gracePeriodDays) {
+  if (shareStatus === 'paid' || shareStatus === 'settled') return shareStatus;
+  const now = Date.now();
+  const dueMs = new Date(billDueDate).getTime();
+  const grace = gracePeriodDays ?? 5;
+  const overdueEndMs = dueMs + grace * 24 * 60 * 60 * 1000;
+  if (now < dueMs) return 'pending';
+  if (now < overdueEndMs) return 'overdue';
+  return 'unpaid';
+}
+
 router.get('/summary', async (req, res) => {
   try {
     const ownerId = req.user.userId;
-    const now = new Date();
 
     const tenants = await User.find({ invitedBy: ownerId, role: 'client' })
       .select('_id name email status roomId')
@@ -65,53 +79,43 @@ router.get('/summary', async (req, res) => {
         totalBilled: 0,
         overdueAmount: 0,
         unpaidAmount: 0,
-        // pending shares collected for post-processing
-        _pendingShares: []
+        _outstandingShares: []
       };
     }
 
     for (const bill of bills) {
-      const isPastDue = bill.dueDate < now;
       for (const share of bill.shares) {
         const key = share.tenantId?.toString();
         if (!tenantMap[key]) continue;
         tenantMap[key].totalBilled += (Number(share.amount) || 0);
-        if (share.status === 'pending') {
-          tenantMap[key]._pendingShares.push({
+        // Re-derive status from dueDate so the summary is always accurate,
+        // even if the per-bill tick hasn't fired yet for this bill.
+        const status = effectiveShareStatus(
+          share.status, bill.dueDate, bill.gracePeriodDays
+        );
+        if (status !== 'paid' && status !== 'settled') {
+          tenantMap[key]._outstandingShares.push({
             amount: Number(share.amount) || 0,
-            dueDate: bill.dueDate,
-            isPastDue
+            status
           });
         }
       }
     }
 
-    // Overdue = only the single most-recent past-due share per tenant.
-    // All other pending shares (older overdue + not-yet-due) go into unpaid.
-    // When a new month's bill becomes overdue, the previous one rolls to unpaid.
-    // Uses index-based exclusion to avoid object-reference comparison issues.
+    // overdueAmount = shares that are past due (status: overdue or unpaid)
+    // unpaidAmount  = shares not yet past due (status: pending)
     let totalOverdue = 0;
     let totalUnpaid = 0;
     for (const entry of Object.values(tenantMap)) {
-      const shares = entry._pendingShares;
+      const shares = entry._outstandingShares;
 
-      // Find the index of the most-recent past-due share
-      let latestOverdueIdx = -1;
-      let latestDueDate = null;
-      for (let i = 0; i < shares.length; i++) {
-        if (shares[i].isPastDue) {
-          if (latestDueDate === null || shares[i].dueDate > latestDueDate) {
-            latestDueDate = shares[i].dueDate;
-            latestOverdueIdx = i;
-          }
-        }
-      }
-
-      entry.overdueAmount = latestOverdueIdx >= 0 ? shares[latestOverdueIdx].amount : 0;
-      entry.unpaidAmount = shares.reduce((sum, s, i) => {
-        return i === latestOverdueIdx ? sum : sum + s.amount;
-      }, 0);
-      delete entry._pendingShares;
+      entry.overdueAmount = shares
+        .filter(s => s.status === 'overdue' || s.status === 'unpaid')
+        .reduce((sum, s) => sum + s.amount, 0);
+      entry.unpaidAmount = shares
+        .filter(s => s.status === 'pending')
+        .reduce((sum, s) => sum + s.amount, 0);
+      delete entry._outstandingShares;
 
       totalOverdue += entry.overdueAmount;
       totalUnpaid += entry.unpaidAmount;

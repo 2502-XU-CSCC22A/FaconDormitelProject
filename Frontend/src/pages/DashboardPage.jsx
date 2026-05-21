@@ -34,14 +34,22 @@ function fmt(n) {
 }
 
 function ShareStatusBadge({ share }) {
-  if (share.status === 'paid') {
+  const { status } = share;
+  if (status === 'paid' || status === 'settled') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-        Paid
+        {status === 'settled' ? 'Settled' : 'Paid'}
       </span>
     );
   }
-  if (share.overdue) {
+  if (status === 'unpaid') {
+    return (
+      <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-200 text-red-900">
+        Unpaid
+      </span>
+    );
+  }
+  if (status === 'overdue') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
         Overdue
@@ -61,6 +69,7 @@ function DashboardPage() {
 
   const [bills, setBills] = useState([]);
   const [arrears, setArrears] = useState(0);
+  const [unpaidDebt, setUnpaidDebt] = useState(0);
   const [totalDue, setTotalDue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -81,7 +90,8 @@ function DashboardPage() {
       const data = await res.json();
       if (res.ok) {
         setBills(data.bills ?? []);
-        setArrears(data.arrears ?? 0);
+        setArrears(data.overdueAmount ?? data.arrears ?? 0);
+        setUnpaidDebt(data.unpaidDebt ?? 0);
         setTotalDue(data.totalDue ?? 0);
       } else {
         setLoadError(data.message || 'Failed to load bills.');
@@ -147,8 +157,16 @@ function DashboardPage() {
                 ? 'bg-red-50 border-red-200 text-red-700'
                 : 'bg-green-50 border-green-200 text-green-700'
             }`}>
-              <span>Arrears:</span>
+              <span>Overdue:</span>
               <span>₱{fmt(arrears)}</span>
+            </div>
+            <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold border ${
+              unpaidDebt > 0
+                ? 'bg-red-50 border-red-300 text-red-900'
+                : 'bg-green-50 border-green-200 text-green-700'
+            }`}>
+              <span>Debt:</span>
+              <span>₱{fmt(unpaidDebt)}</span>
             </div>
             <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold border ${
               totalDue > 0
@@ -246,7 +264,7 @@ function DashboardPage() {
                           <span>₱{fmt(share.amount)}</span>
                         </div>
                       )}
-                      {share?.status === 'paid' && share.paidAt && (
+                      {(share?.status === 'paid' || share?.status === 'settled') && share.paidAt && (
                         <p className="text-xs text-green-600 mt-1">
                           Paid on {formatDate(share.paidAt)}
                         </p>

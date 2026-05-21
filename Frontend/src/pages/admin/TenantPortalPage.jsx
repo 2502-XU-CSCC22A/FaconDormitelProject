@@ -95,11 +95,11 @@ function TenantPortalPage() {
                 {t.totalBilled > 0 ? `₱${fmt(t.totalBilled)}` : <span className="text-gray-400">—</span>}
               </div>
               <div className="col-span-3 text-right">
-                {t.unpaidAmount > 0
-                  ? <span className="font-semibold text-gray-900">₱{fmt(t.unpaidAmount)}</span>
-                  : t.overdueAmount === 0
-                    ? <span className="text-green-600 font-medium">Settled</span>
-                    : <span className="text-gray-400">—</span>}
+                {t.overdueAmount > 0
+                  ? <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">Overdue</span>
+                  : t.unpaidAmount > 0
+                    ? <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Unsettled</span>
+                    : <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">Settled</span>}
               </div>
               <div className="col-span-2 text-right">
                 {t.overdueAmount > 0
