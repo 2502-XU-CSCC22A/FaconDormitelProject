@@ -1,5 +1,10 @@
 jest.mock('../services/emailService', () => ({
-  sendEmail: jest.fn().mockResolvedValue({ success: true })
+  sendEmail: jest.fn().mockResolvedValue({ success: true }),
+  buildBillCreatedEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildOverdueReminderEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildArrearsNoticeEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildPaymentConfirmationEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildReminderEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' })
 }));
 
 const request = require('supertest');
@@ -542,8 +547,8 @@ describe('Bill share status lifecycle — payment interactions', () => {
     expect(bill.shares.id(share._id).status).toBe('paid');
   });
 
-  it('approving payment on unpaid share sets status to settled', async () => {
-    // dueDate 7 days ago, grace = 5 days → past grace window = unpaid
+  it('approving payment on arrears share sets status to settled', async () => {
+    // dueDate 7 days ago, grace = 5 days → past grace window = arrears
     const billRes = await request(app)
       .post('/api/admin/bills')
       .set('Authorization', `Bearer ${ownerToken}`)
@@ -556,7 +561,7 @@ describe('Bill share status lifecycle — payment interactions', () => {
       });
     expect(billRes.status).toBe(201);
     const share = billRes.body.bill.shares.find(s => s.tenantEmail === 'tenant1@test.com');
-    expect(share.status).toBe('unpaid');
+    expect(share.status).toBe('arrears');
 
     const { body: { payment: { _id: paymentId } } } = await submitPayment(tenantToken, share._id);
     const approveRes = await request(app)

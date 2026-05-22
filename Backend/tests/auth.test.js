@@ -10,7 +10,12 @@ jest.mock('../services/emailService', () => ({
     subject: 'Reset your Rfacon Dormitel password',
     html: '<p>Reset HTML</p>',
     text: 'Reset plain text'
-  })
+  }),
+  buildBillCreatedEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildOverdueReminderEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildArrearsNoticeEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildPaymentConfirmationEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildReminderEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' })
 }));
 // Mock DNS so tests don't depend on network reachability.
 // hasValidMxRecord uses dns.resolveMx — intercept that to return predictable results.
@@ -960,5 +965,204 @@ describe('Auth Module - Forgot/Reset Password', () => {
         expect(Array.isArray(res.body.errors)).toBe(true);
       });
     });
+  });
+});
+
+
+// =========================================================================
+// TENANT CAPACITY ENFORCEMENT
+// =========================================================================
+describe('Tenant capacity enforcement', () => {
+  const Room = require('../models/Room');
+  let ownerToken;
+  let testRoom;
+
+  beforeEach(async () => {
+    await Room.deleteMany({});
+    await seedOwner();
+    ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
+    testRoom = await Room.create({ roomNumber: 'CAP-01', capacity: 3 });
+  });
+
+  afterEach(async () => {
+    await Room.deleteMany({});
+  });
+
+  it('should create tenant when room has space (2/3)', async () => {
+    // Fill 2 of 3 slots
+    await User.create([
+      { email: 'occupant1@gmail.com', name: 'Occ One', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok1', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id },
+      { email: 'occupant2@gmail.com', name: 'Occ Two', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok2', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id }
+    ]);
+
+    const res = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: TENANT_EMAIL, roomId: testRoom._id.toString() });
+
+    expect(res.status).toBe(201);
+    expect(res.body.message).toMatch(/invited successfully/i);
+  });
+
+  it('should reject 409 when room is at full capacity (3/3)', async () => {
+    // Fill all 3 slots
+    await User.create([
+      { email: 'full1@gmail.com', name: 'Full One', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok1', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id },
+      { email: 'full2@gmail.com', name: 'Full Two', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok2', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id },
+      { email: 'full3@gmail.com', name: 'Full Three', role: 'client', mustSetPassword: true,
+        inviteToken: 'tok3', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: testRoom._id }
+    ]);
+
+    const res = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: TENANT_EMAIL, roomId: testRoom._id.toString() });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/full capacity/i);
+  });
+
+  it('should still allow creating tenant with no roomId (skip capacity check)', async () => {
+    const res = await request(app)
+      .post('/api/admin/tenants')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: TENANT_NAME, email: TENANT_EMAIL });
+
+    expect(res.status).toBe(201);
+    expect(res.body.message).toMatch(/invited successfully/i);
+  });
+});
+
+
+// =========================================================================
+// REASSIGN TENANT ROOM
+// =========================================================================
+describe('reassignTenantRoom', () => {
+  const Room = require('../models/Room');
+  let ownerToken;
+  let ownerDoc;
+  let tenant;
+  let roomA;
+  let roomB;
+
+  beforeEach(async () => {
+    await Room.deleteMany({});
+    ownerDoc = await seedOwner();
+    ownerToken = await loginAs(OWNER_EMAIL, OWNER_PASSWORD);
+
+    roomA = await Room.create({ roomNumber: 'RA', capacity: 2 });
+    roomB = await Room.create({ roomNumber: 'RB', capacity: 1 });
+
+    const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
+    tenant = await User.create({
+      email: TENANT_EMAIL,
+      name: TENANT_NAME,
+      password: hashed,
+      role: 'client',
+      mustSetPassword: false,
+      invitedBy: ownerDoc._id,
+      roomId: roomA._id
+    });
+    await Room.findByIdAndUpdate(roomA._id, { currentOccupants: 1 });
+  });
+
+  afterEach(async () => {
+    await Room.deleteMany({});
+  });
+
+  it('should reassign tenant to a different room with space', async () => {
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: roomB._id.toString() });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/updated/i);
+
+    const updated = await User.findById(tenant._id);
+    expect(updated.roomId.toString()).toBe(roomB._id.toString());
+
+    const updatedA = await Room.findById(roomA._id);
+    const updatedB = await Room.findById(roomB._id);
+    expect(updatedA.currentOccupants).toBe(0);
+    expect(updatedB.currentOccupants).toBe(1);
+  });
+
+  it('should reject 409 when target room is at capacity', async () => {
+    // Fill roomB (capacity 1)
+    await User.create({
+      email: 'other@gmail.com', name: 'Other', role: 'client', mustSetPassword: true,
+      inviteToken: 'tok99', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: roomB._id
+    });
+    await Room.findByIdAndUpdate(roomB._id, { currentOccupants: 1 });
+
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: roomB._id.toString() });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/full capacity/i);
+  });
+
+  it('should allow unassigning a tenant (roomId: null)', async () => {
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/unassigned/i);
+
+    const updated = await User.findById(tenant._id);
+    expect(updated.roomId).toBeNull();
+
+    const updatedA = await Room.findById(roomA._id);
+    expect(updatedA.currentOccupants).toBe(0);
+  });
+
+  it('should reject 404 when room does not exist', async () => {
+    const fakeRoomId = new mongoose.Types.ObjectId();
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: fakeRoomId.toString() });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/room not found/i);
+  });
+
+  it('should reject 404 when tenant does not belong to owner', async () => {
+    // Create a second owner and their token — tenant is NOT invitedBy this owner
+    const hashed = await bcrypt.hash(VALID_PASSWORD, 10);
+    await User.create({ email: 'owner2@dormisync.local', password: hashed, role: 'owner',
+      name: 'Owner Two', mustSetPassword: false });
+    const otherOwnerToken = await loginAs('owner2@dormisync.local', VALID_PASSWORD);
+
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${otherOwnerToken}`)
+      .send({ roomId: roomB._id.toString() });
+
+    expect(res.status).toBe(404);
+    expect(res.body.message).toMatch(/tenant not found/i);
+  });
+
+  it('should be a no-op when target room is the same as current', async () => {
+    const res = await request(app)
+      .patch(`/api/admin/tenants/${tenant._id}/room`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ roomId: roomA._id.toString() });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/no change/i);
+
+    // Occupant count must not have changed
+    const updatedA = await Room.findById(roomA._id);
+    expect(updatedA.currentOccupants).toBe(1);
   });
 });

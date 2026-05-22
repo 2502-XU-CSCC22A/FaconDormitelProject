@@ -11,6 +11,7 @@ const meRoutes = require('./routes/me');
 const cors = require('cors');
 
 // Connect to the Docker MongoDB database
+console.log("Current URI being used:", process.env.MONGO_URI);
 if (process.env.NODE_ENV !== 'test') {
   mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('MongoDB is successfully connected!'))

@@ -15,14 +15,13 @@ function formatShortDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 }
-function isOverdue(share, dueDate) {
-  return share.status === 'pending' && (share.overdue === true || new Date(dueDate) < new Date());
-}
 
-function StatusBadge({ status, overdue }) {
-  if (status === 'paid')
+function StatusBadge({ status }) {
+  if (status === 'paid' || status === 'settled')
     return <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">Paid</span>;
-  if (overdue)
+  if (status === 'arrears' || status === 'unpaid')
+    return <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700">Arrears</span>;
+  if (status === 'overdue')
     return <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">Overdue</span>;
   return <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">Pending</span>;
 }
@@ -31,6 +30,7 @@ function BillingPage() {
   const user = useMemo(() => getUser(), []);
   const [bills, setBills] = useState([]);
   const [totalDue, setTotalDue] = useState(0);
+  const [arrearsAmount, setArrearsAmount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -42,8 +42,11 @@ function BillingPage() {
     try {
       const res = await fetch(`${API}/api/me/bills`, { headers: { ...authHeader() } });
       const data = await res.json();
-      if (res.ok) { setBills(data.bills ?? []); setTotalDue(data.totalDue ?? 0); }
-      else setError(data.message || 'Failed to load billing statements.');
+      if (res.ok) {
+        setBills(data.bills ?? []);
+        setTotalDue(data.totalDue ?? 0);
+        setArrearsAmount(data.arrearsAmount ?? data.arrears ?? 0);
+      } else setError(data.message || 'Failed to load billing statements.');
     } catch { setError('Failed to connect to the server.'); }
     finally { setLoading(false); }
   }, []);
@@ -60,9 +63,12 @@ function BillingPage() {
   const totalBilled = useMemo(() => bills.reduce((sum, b) => sum + (myShare(b)?.amount ?? 0), 0), [bills, myShare]);
   const totalPaid = useMemo(() => bills.reduce((sum, b) => {
     const s = myShare(b);
-    return sum + (s?.status === 'paid' ? s.amount : 0);
+    return sum + ((s?.status === 'paid' || s?.status === 'settled') ? s.amount : 0);
   }, 0), [bills, myShare]);
-  const paidCount = useMemo(() => bills.filter(b => myShare(b)?.status === 'paid').length, [bills, myShare]);
+  const paidCount = useMemo(
+    () => bills.filter(b => { const s = myShare(b); return s?.status === 'paid' || s?.status === 'settled'; }).length,
+    [bills, myShare]
+  );
 
   return (
     <div className="min-h-full flex flex-col">
@@ -85,6 +91,23 @@ function BillingPage() {
           <div className="flex items-center justify-center py-20 text-red-600 text-sm">{error}</div>
         ) : (
           <>
+            {/* Arrears warning banner */}
+            {arrearsAmount > 0 && (
+              <div className="flex items-start gap-3 bg-orange-50 border border-orange-200 rounded-xl px-5 py-4">
+                <svg className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-orange-800">
+                    You have outstanding arrears of ₱{fmt(arrearsAmount)} from previous billing periods
+                  </p>
+                  <p className="text-xs text-orange-600 mt-0.5">
+                    Please settle your arrears immediately to avoid further action.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Stat cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
@@ -130,7 +153,6 @@ function BillingPage() {
                 <div className="divide-y divide-gray-100">
                   {bills.map(bill => {
                     const share = myShare(bill);
-                    const overdue = share && isOverdue(share, bill.dueDate);
                     return (
                       <div key={bill._id} className="grid items-center px-5 py-3.5 text-sm hover:bg-gray-50 transition"
                         style={{ gridTemplateColumns: '2fr 1.5fr 1.5fr 1fr 1fr 1fr' }}>
@@ -140,7 +162,7 @@ function BillingPage() {
                         <div className="text-right font-semibold text-gray-800">{share ? `₱${fmt(share.amount)}` : '—'}</div>
                         <div className="text-right text-gray-500 text-xs">{formatShortDate(bill.dueDate)}</div>
                         <div className="flex justify-end">
-                          {share && <StatusBadge status={share.status} overdue={overdue} />}
+                          {share && <StatusBadge status={share.status} />}
                         </div>
                       </div>
                     );

@@ -208,4 +208,145 @@ function buildResetEmail({ userName, resetLink }) {
   return { subject, html, text };
 }
 
-module.exports = { sendEmail, buildInviteEmail, buildResetEmail };
+function fmtPHP(n) {
+  return '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtMonth(yyyyMM) {
+  if (!yyyyMM) return '';
+  const [y, m] = yyyyMM.split('-');
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleString('en-PH', { month: 'long', year: 'numeric' });
+}
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+const EMAIL_HEADER = `
+<div style="max-width:540px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;border-top:4px solid #E8A93D;font-family:'Segoe UI',Tahoma,sans-serif;color:#333;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px;">
+    <span style="font-size:20px;font-weight:700;color:#E8A93D;">Rfacon Dormitel</span>
+  </div>`;
+const EMAIL_FOOTER = `
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0 16px;">
+  <p style="color:#999;font-size:12px;margin:0;">Rfacon Dormitel — Dormitory Management System</p>
+</div>`;
+
+function buildBillCreatedEmail({ tenantName, roomName, billingMonth, shareAmount, flatFee, electricityAmount, dueDate }) {
+  const subject = `New bill posted — ${fmtMonth(billingMonth)} | Rfacon Dormitel`;
+  const greeting = tenantName ? `Hi ${tenantName},` : 'Hello,';
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="background:#FFF8EE;padding:24px;">
+${EMAIL_HEADER}
+  <h2 style="color:#333;margin-top:0;">New Bill Posted</h2>
+  <p>${greeting}</p>
+  <p>A new bill has been created for your stay at <strong>${roomName}</strong>.</p>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+    <tr><td style="padding:8px 0;color:#666;border-bottom:1px solid #f0f0f0;">Billing Period</td><td style="padding:8px 0;text-align:right;font-weight:600;">${fmtMonth(billingMonth)}</td></tr>
+    <tr><td style="padding:8px 0;color:#666;border-bottom:1px solid #f0f0f0;">Flat Fee</td><td style="padding:8px 0;text-align:right;">${fmtPHP(flatFee)}</td></tr>
+    <tr><td style="padding:8px 0;color:#666;border-bottom:1px solid #f0f0f0;">Electricity</td><td style="padding:8px 0;text-align:right;">${fmtPHP(electricityAmount)}</td></tr>
+    <tr><td style="padding:8px 0;color:#333;font-weight:700;border-bottom:2px solid #E8A93D;">Your Share</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#E8A93D;font-size:18px;">${fmtPHP(shareAmount)}</td></tr>
+  </table>
+  <p style="background:#FFF8EE;border-radius:8px;padding:12px 16px;font-size:14px;">
+    <strong>Due Date:</strong> ${fmtDate(dueDate)}
+  </p>
+  <p style="color:#666;font-size:13px;">Please settle your bill before the due date to avoid overdue charges.</p>
+${EMAIL_FOOTER}
+</body></html>`;
+  const text = `${greeting}\n\nA new bill has been posted for ${roomName}.\nBilling Period: ${fmtMonth(billingMonth)}\nFlat Fee: ${fmtPHP(flatFee)}\nElectricity: ${fmtPHP(electricityAmount)}\nYour Share: ${fmtPHP(shareAmount)}\nDue Date: ${fmtDate(dueDate)}\n\n— Rfacon Dormitel`;
+  return { subject, html, text };
+}
+
+function buildOverdueReminderEmail({ tenantName, roomName, billingMonth, shareAmount, dueDate }) {
+  const subject = `Payment reminder — ${fmtMonth(billingMonth)} bill overdue | Rfacon Dormitel`;
+  const greeting = tenantName ? `Hi ${tenantName},` : 'Hello,';
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="background:#FFF8EE;padding:24px;">
+${EMAIL_HEADER}
+  <h2 style="color:#DC2626;margin-top:0;">Bill Overdue</h2>
+  <p>${greeting}</p>
+  <p>Your bill for <strong>${fmtMonth(billingMonth)}</strong> at <strong>${roomName}</strong> is now <strong style="color:#DC2626;">overdue</strong>.</p>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+    <tr><td style="padding:8px 0;color:#666;border-bottom:1px solid #f0f0f0;">Billing Period</td><td style="padding:8px 0;text-align:right;font-weight:600;">${fmtMonth(billingMonth)}</td></tr>
+    <tr><td style="padding:8px 0;color:#666;border-bottom:1px solid #f0f0f0;">Due Date</td><td style="padding:8px 0;text-align:right;color:#DC2626;">${fmtDate(dueDate)}</td></tr>
+    <tr><td style="padding:8px 0;font-weight:700;">Amount Due</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#DC2626;font-size:18px;">${fmtPHP(shareAmount)}</td></tr>
+  </table>
+  <p style="color:#666;font-size:13px;">Please settle your balance immediately to avoid further penalties.</p>
+${EMAIL_FOOTER}
+</body></html>`;
+  const text = `${greeting}\n\nYour ${fmtMonth(billingMonth)} bill of ${fmtPHP(shareAmount)} at ${roomName} is now overdue (due ${fmtDate(dueDate)}). Please settle immediately.\n\n— Rfacon Dormitel`;
+  return { subject, html, text };
+}
+
+function buildArrearsNoticeEmail({ tenantName, roomName, billingMonth, shareAmount, totalArrears }) {
+  const subject = `URGENT: Your account is in arrears — Rfacon Dormitel`;
+  const greeting = tenantName ? `Hi ${tenantName},` : 'Hello,';
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="background:#FFF8EE;padding:24px;">
+${EMAIL_HEADER}
+  <h2 style="color:#C2410C;margin-top:0;">Account in Arrears</h2>
+  <p>${greeting}</p>
+  <p>Your unpaid bill for <strong>${fmtMonth(billingMonth)}</strong> at <strong>${roomName}</strong> has been moved to <strong style="color:#C2410C;">arrears</strong>.</p>
+  <div style="background:#FEF3C7;border-left:4px solid #F59E0B;padding:14px 16px;border-radius:0 6px 6px 0;margin:16px 0;">
+    <p style="margin:0;font-weight:600;color:#92400E;">Total Arrears Balance: ${fmtPHP(totalArrears || shareAmount)}</p>
+    <p style="margin:4px 0 0;color:#78350F;font-size:13px;">This debt has been carried over and must be settled as soon as possible.</p>
+  </div>
+  <p style="color:#666;font-size:13px;">Please contact management immediately to arrange payment.</p>
+${EMAIL_FOOTER}
+</body></html>`;
+  const text = `${greeting}\n\nURGENT: Your ${fmtMonth(billingMonth)} bill has been moved to arrears.\nTotal Arrears: ${fmtPHP(totalArrears || shareAmount)}\n\nPlease settle immediately.\n\n— Rfacon Dormitel`;
+  return { subject, html, text };
+}
+
+function buildPaymentConfirmationEmail({ tenantName, roomName, billingMonth, amount, paymentDate }) {
+  const subject = `Payment confirmed — ${fmtMonth(billingMonth)} | Rfacon Dormitel`;
+  const greeting = tenantName ? `Hi ${tenantName},` : 'Hello,';
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="background:#FFF8EE;padding:24px;">
+${EMAIL_HEADER}
+  <h2 style="color:#16A34A;margin-top:0;">Payment Confirmed</h2>
+  <p>${greeting}</p>
+  <p>Your payment for <strong>${fmtMonth(billingMonth)}</strong> at <strong>${roomName}</strong> has been confirmed.</p>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+    <tr><td style="padding:8px 0;color:#666;border-bottom:1px solid #f0f0f0;">Billing Period</td><td style="padding:8px 0;text-align:right;font-weight:600;">${fmtMonth(billingMonth)}</td></tr>
+    <tr><td style="padding:8px 0;color:#666;border-bottom:1px solid #f0f0f0;">Payment Date</td><td style="padding:8px 0;text-align:right;">${fmtDate(paymentDate)}</td></tr>
+    <tr><td style="padding:8px 0;font-weight:700;">Amount Paid</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#16A34A;font-size:18px;">${fmtPHP(amount)}</td></tr>
+  </table>
+  <p style="color:#666;font-size:13px;">Thank you for your payment. This receipt serves as confirmation.</p>
+${EMAIL_FOOTER}
+</body></html>`;
+  const text = `${greeting}\n\nYour payment of ${fmtPHP(amount)} for ${fmtMonth(billingMonth)} at ${roomName} has been confirmed on ${fmtDate(paymentDate)}.\n\nThank you!\n\n— Rfacon Dormitel`;
+  return { subject, html, text };
+}
+
+function buildReminderEmail({ tenantName, roomNumber, overdueAmount, arrearsAmount, pendingAmount, totalOutstanding }) {
+  const subject = `Outstanding balance reminder — Rfacon Dormitel`;
+  const greeting = tenantName ? `Hi ${tenantName},` : 'Hello,';
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="background:#FFF8EE;padding:24px;">
+${EMAIL_HEADER}
+  <h2 style="color:#333;margin-top:0;">Outstanding Balance Reminder</h2>
+  <p>${greeting}</p>
+  <p>This is a reminder that you have an outstanding balance for your room <strong>${roomNumber}</strong>.</p>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+    ${arrearsAmount > 0 ? `<tr><td style="padding:8px 0;color:#C2410C;border-bottom:1px solid #f0f0f0;">Arrears</td><td style="padding:8px 0;text-align:right;color:#C2410C;font-weight:600;">${fmtPHP(arrearsAmount)}</td></tr>` : ''}
+    ${overdueAmount > 0 ? `<tr><td style="padding:8px 0;color:#DC2626;border-bottom:1px solid #f0f0f0;">Overdue</td><td style="padding:8px 0;text-align:right;color:#DC2626;font-weight:600;">${fmtPHP(overdueAmount)}</td></tr>` : ''}
+    ${pendingAmount > 0 ? `<tr><td style="padding:8px 0;color:#666;border-bottom:1px solid #f0f0f0;">Pending</td><td style="padding:8px 0;text-align:right;">${fmtPHP(pendingAmount)}</td></tr>` : ''}
+    <tr><td style="padding:8px 0;font-weight:700;">Total Outstanding</td><td style="padding:8px 0;text-align:right;font-weight:700;color:#E8A93D;font-size:18px;">${fmtPHP(totalOutstanding)}</td></tr>
+  </table>
+  <p style="color:#666;font-size:13px;">Please settle your balance at the earliest opportunity. Contact management if you have any questions.</p>
+${EMAIL_FOOTER}
+</body></html>`;
+  const text = `${greeting}\n\nYou have an outstanding balance of ${fmtPHP(totalOutstanding)} for room ${roomNumber}.\n${arrearsAmount > 0 ? `Arrears: ${fmtPHP(arrearsAmount)}\n` : ''}${overdueAmount > 0 ? `Overdue: ${fmtPHP(overdueAmount)}\n` : ''}Please settle immediately.\n\n— Rfacon Dormitel`;
+  return { subject, html, text };
+}
+
+module.exports = {
+  sendEmail,
+  buildInviteEmail,
+  buildResetEmail,
+  buildBillCreatedEmail,
+  buildOverdueReminderEmail,
+  buildArrearsNoticeEmail,
+  buildPaymentConfirmationEmail,
+  buildReminderEmail
+};

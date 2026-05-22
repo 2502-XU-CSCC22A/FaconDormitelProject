@@ -1,10 +1,11 @@
 jest.mock('../services/emailService', () => ({
   sendEmail: jest.fn().mockResolvedValue({ success: true }),
-  buildInviteEmail: jest.fn().mockReturnValue({
-    subject: 'Test Subject',
-    html: '<p>Test HTML</p>',
-    text: 'Test plain text'
-  })
+  buildInviteEmail: jest.fn().mockReturnValue({ subject: 'Test Subject', html: '<p>Test HTML</p>', text: 'Test plain text' }),
+  buildBillCreatedEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildOverdueReminderEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildArrearsNoticeEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildPaymentConfirmationEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' }),
+  buildReminderEmail: jest.fn().mockReturnValue({ subject: '', html: '', text: '' })
 }));
 
 const request = require('supertest');
@@ -461,7 +462,7 @@ describe('Bills Module - getMyBills', () => {
     expect(res.body.bills[0].shares.some(s => s.tenantEmail === 'tenant1@test.com')).toBe(true);
   });
 
-  it('should compute arrears (overdue pending) and totalDue (all pending) in a single pass', async () => {
+  it('should compute overdueAmount and totalDue in a single pass', async () => {
     const room = await seedRoom('A101');
     await seedTenant('tenant1@test.com', room._id);
     const tenantToken = await loginAs('tenant1@test.com', VALID_PASSWORD);
@@ -480,11 +481,11 @@ describe('Bills Module - getMyBills', () => {
     expect(res.status).toBe(200);
     expect(res.body.bills).toHaveLength(2);
     expect(res.body.totalDue).toBeGreaterThan(0);
-    expect(res.body.arrears).toBeGreaterThan(0);
-    expect(res.body.arrears).toBeLessThan(res.body.totalDue);
-    // arrears must equal exactly the share amount from the overdue bill
+    expect(res.body.overdueAmount).toBeGreaterThan(0);
+    expect(res.body.overdueAmount).toBeLessThan(res.body.totalDue);
+    // overdueAmount must equal exactly the share amount from the overdue bill
     const overdueShareAmount = res1.body.bill.shares[0].amount;
-    expect(res.body.arrears).toBe(overdueShareAmount);
+    expect(res.body.overdueAmount).toBe(overdueShareAmount);
   });
 
   it('should return bills from all rooms the tenant has ever occupied (multi-room history)', async () => {
@@ -612,8 +613,8 @@ describe('Bill share status state machine', () => {
     bill.shares.forEach(s => expect(s.status).toBe('overdue'));
   });
 
-  it('bill past grace period has status=unpaid after tick', async () => {
-    // dueDate 10 days ago, grace=5d → past overdueEnd → unpaid
+  it('bill past grace period has status=arrears after tick', async () => {
+    // dueDate 10 days ago, grace=5d → past overdueEnd → arrears
     const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     await request(app)
       .post('/api/admin/bills')
@@ -625,7 +626,7 @@ describe('Bill share status state machine', () => {
       .set('Authorization', `Bearer ${ownerToken}`);
     expect(res.status).toBe(200);
     const bill = res.body.bills.find(b => b.billingMonth === '2030-03');
-    bill.shares.forEach(s => expect(s.status).toBe('unpaid'));
+    bill.shares.forEach(s => expect(s.status).toBe('arrears'));
   });
 
   it('paid shares are not modified by tick (terminal state)', async () => {

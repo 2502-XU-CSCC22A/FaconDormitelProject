@@ -1,5 +1,4 @@
 // src/pages/tenant/NotifsPage.jsx
-// Notifications derived from bills — no dedicated endpoint exists yet
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getUser, authHeader } from '../../utils/auth';
 
@@ -38,59 +37,86 @@ function buildEvents(bills, userId) {
     const share = bill.shares.find(s => s.tenantId && s.tenantId.toString() === userId?.toString()) ?? bill.shares[0];
     if (!share) continue;
     const month = formatMonth(bill.billingMonth);
-    const overdue = share.status === 'pending' && (share.overdue === true || new Date(bill.dueDate) < new Date());
+    const monthShort = month.split(' ')[0];
 
     // New bill posted — timestamp from ObjectId
     events.push({
       key: `bill-${bill._id}`,
       color: 'bg-blue-400',
       title: `New bill posted — ${month}`,
-      desc: `Your share for ${month.split(' ')[0]} utilities is ₱${fmt(share.amount)}. Due ${formatDate(bill.dueDate)}.`,
+      desc: `Your share for ${monthShort} utilities is ₱${fmt(share.amount)}. Due ${formatDate(bill.dueDate)}.`,
       timestamp: oidToDate(bill._id),
     });
 
-    // Payment confirmed
-    if (share.status === 'paid' && share.paidAt) {
+    // Payment confirmed (paid or settled)
+    if ((share.status === 'paid' || share.status === 'settled') && share.paidAt) {
       events.push({
         key: `paid-${bill._id}`,
         color: 'bg-green-500',
         title: `Payment confirmed — ${month}`,
-        desc: `Your ₱${fmt(share.amount)} payment for ${month.split(' ')[0]} was marked as received by the owner.`,
+        desc: `Your ₱${fmt(share.amount)} payment for ${monthShort} was marked as received by the owner.`,
         timestamp: new Date(share.paidAt),
       });
     }
 
     // Overdue notice
-    if (overdue) {
+    if (share.status === 'overdue') {
       events.push({
         key: `overdue-${bill._id}`,
         color: 'bg-red-500',
         title: `Overdue — ${month}`,
-        desc: `Your ${month.split(' ')[0]} bill of ₱${fmt(share.amount)} is past due. Please settle as soon as possible.`,
+        desc: `Your ${monthShort} bill of ₱${fmt(share.amount)} is past due. Please settle as soon as possible.`,
         timestamp: new Date(bill.dueDate),
+      });
+    }
+
+    // Arrears notice (bill moved to arrears after grace period)
+    if (share.status === 'arrears' || share.status === 'unpaid') {
+      const arrearsDate = new Date(new Date(bill.dueDate).getTime() + (bill.gracePeriodDays ?? 5) * 24 * 60 * 60 * 1000);
+      events.push({
+        key: `arrears-${bill._id}`,
+        color: 'bg-orange-500',
+        title: `In arrears — ${month}`,
+        desc: `Your ${monthShort} bill of ₱${fmt(share.amount)} has been moved to arrears. Please settle immediately.`,
+        timestamp: arrearsDate,
       });
     }
   }
   return events.sort((a, b) => b.timestamp - a.timestamp);
 }
 
+// Group events by actual calendar date (Today, Yesterday, day-of-week, or full date)
 function groupEvents(events) {
-  const now = Date.now();
-  const DAY = 86400000;
-  const groups = [
-    { label: 'TODAY',      items: [] },
-    { label: 'THIS WEEK',  items: [] },
-    { label: 'LAST MONTH', items: [] },
-    { label: 'EARLIER',    items: [] },
-  ];
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  // Build date → items map
+  const dateMap = new Map();
   for (const e of events) {
-    const age = now - e.timestamp.getTime();
-    if (age < DAY)         groups[0].items.push(e);
-    else if (age < 7 * DAY) groups[1].items.push(e);
-    else if (age < 30 * DAY) groups[2].items.push(e);
-    else                    groups[3].items.push(e);
+    const d = e.timestamp;
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const key = dayStart.getTime();
+    if (!dateMap.has(key)) dateMap.set(key, { date: dayStart, items: [] });
+    dateMap.get(key).items.push(e);
   }
-  return groups.filter(g => g.items.length > 0);
+
+  // Sort dates descending and build labeled groups
+  const sortedDates = Array.from(dateMap.values()).sort((a, b) => b.date - a.date);
+
+  return sortedDates.map(({ date, items }) => {
+    const diffDays = Math.round((todayStart - date) / 86400000);
+    let label;
+    if (diffDays === 0) {
+      label = 'TODAY';
+    } else if (diffDays === 1) {
+      label = 'YESTERDAY';
+    } else if (diffDays < 7) {
+      label = date.toLocaleDateString('en-PH', { weekday: 'long' }).toUpperCase();
+    } else {
+      label = date.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+    }
+    return { label, items };
+  });
 }
 
 function NotifsPage() {
