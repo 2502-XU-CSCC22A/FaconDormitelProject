@@ -1,9 +1,30 @@
-// src/pages/tenant/PaymentsPage.jsx
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { getUser, authHeader } from '../../utils/auth';
+import SubmitPaymentModal from '../../components/tenant/SubmitPaymentModal';
 
 const API = 'http://localhost:5000';
+
+function ProofImage({ proofImagePath }) {
+  const [src, setSrc] = useState(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    if (!proofImagePath) return;
+    let revoked = false;
+    let objectUrl = null;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/uploads/${proofImagePath}`, { headers: { ...authHeader() } });
+        if (!res.ok) throw new Error();
+        const blob = await res.blob();
+        if (!revoked) { objectUrl = URL.createObjectURL(blob); setSrc(objectUrl); }
+      } catch { if (!revoked) setError(true); }
+    })();
+    return () => { revoked = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [proofImagePath]);
+  if (error) return <div className="text-sm text-red-500">Failed to load proof image.</div>;
+  if (!src) return <div className="text-sm text-gray-400">Loading proof…</div>;
+  return <img src={src} alt="Payment proof" className="max-w-full max-h-64 rounded border border-gray-200 mx-auto" />;
+}
 
 function fmt(n) {
   return Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -16,74 +37,76 @@ function formatDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
-function isOverdue(share, dueDate) {
-  return share.status === 'pending' && (share.overdue === true || new Date(dueDate) < new Date());
-}
 
-function StatusBadge({ status, overdue }) {
-  if (status === 'paid')
-    return <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">Paid</span>;
-  if (overdue)
-    return <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">Overdue</span>;
-  return <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">Pending</span>;
+const STATUS_STYLES = {
+  submitted: 'bg-blue-100 text-blue-800',
+  approved:  'bg-green-100 text-green-800',
+  rejected:  'bg-red-100 text-red-700',
+  voided:    'bg-gray-100 text-gray-700',
+};
+
+function StatusBadge({ status }) {
+  const label = status.charAt(0).toUpperCase() + status.slice(1);
+  return (
+    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-600'}`}>
+      {label}
+    </span>
+  );
 }
 
 function PaymentsPage() {
   const user = useMemo(() => getUser(), []);
-  const navigate = useNavigate();
+  const [payments, setPayments] = useState([]);
   const [bills, setBills] = useState([]);
-  const [totalDue, setTotalDue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showModal, setShowModal] = useState(false);
+  const [expanded, setExpanded] = useState(null);
 
   const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
   const initials = user?.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
 
-  const fetchBills = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const res = await fetch(`${API}/api/me/bills`, { headers: { ...authHeader() } });
-      const data = await res.json();
-      if (res.ok) { setBills(data.bills ?? []); setTotalDue(data.totalDue ?? 0); }
-      else setError(data.message || 'Failed to load payments.');
-    } catch { setError('Failed to connect to the server.'); }
-    finally { setLoading(false); }
+      const [paymentsRes, billsRes] = await Promise.all([
+        fetch(`${API}/api/me/payments`, { headers: { ...authHeader() } }),
+        fetch(`${API}/api/me/bills`,    { headers: { ...authHeader() } }),
+      ]);
+      const [paymentsData, billsData] = await Promise.all([paymentsRes.json(), billsRes.json()]);
+      if (!paymentsRes.ok) throw new Error(paymentsData.message || 'Failed to load payments.');
+      if (!billsRes.ok)    throw new Error(billsData.message    || 'Failed to load bills.');
+      setPayments(paymentsData.payments ?? []);
+      setBills(billsData.bills ?? []);
+    } catch (err) {
+      setError(err.message || 'Failed to connect to the server.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchBills(); }, [fetchBills]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const myShare = useCallback(
-    (bill) => bill.shares.find(s => s.tenantId && s.tenantId.toString() === user?._id?.toString()) ?? bill.shares[0],
-    [user]
-  );
+  const billMap = useMemo(() => {
+    const map = {};
+    bills.forEach(b => { map[b._id] = b; });
+    return map;
+  }, [bills]);
 
-  const totalPaid = useMemo(() => bills.reduce((sum, b) => {
-    const s = myShare(b);
-    return sum + (s?.status === 'paid' ? s.amount : 0);
-  }, 0), [bills, myShare]);
+  const totalSubmitted = payments.length;
+  const pendingReview  = payments.filter(p => p.status === 'submitted').length;
+  const approved       = payments.filter(p => p.status === 'approved').length;
+  const rejected       = payments.filter(p => p.status === 'rejected').length;
 
-  const paidCount = useMemo(() => bills.filter(b => myShare(b)?.status === 'paid').length, [bills, myShare]);
-  const pendingCount = useMemo(() => bills.filter(b => {
-    const s = myShare(b);
-    return s && s.status === 'pending' && !isOverdue(s, b.dueDate);
-  }).length, [bills, myShare]);
-  const overdueCount = useMemo(() => bills.filter(b => {
-    const s = myShare(b);
-    return s && isOverdue(s, b.dueDate);
-  }).length, [bills, myShare]);
-
-  const onTimeRate = bills.length > 0 ? Math.round((paidCount / bills.length) * 100) : 0;
-
-  const firstOverdueBill = bills.find(b => { const s = myShare(b); return s && isOverdue(s, b.dueDate); });
-  const firstOverdueShare = firstOverdueBill ? myShare(firstOverdueBill) : null;
+  const toggleExpand = (id) => setExpanded(prev => prev === id ? null : id);
 
   return (
     <div className="min-h-full flex flex-col">
       {/* Page header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold text-gray-900">Payment tracker</h1>
-          <p className="text-sm text-gray-500">Your financial history</p>
+          <h1 className="text-lg font-bold text-gray-900">Payments</h1>
+          <p className="text-sm text-gray-500">Your payment submissions</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-400">{today}</span>
@@ -93,125 +116,134 @@ function PaymentsPage() {
 
       <div className="flex-1 px-6 py-6 space-y-5">
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-gray-500 text-sm">Loading payment history…</div>
+          <div className="flex items-center justify-center py-20 text-gray-500 text-sm">Loading payments…</div>
         ) : error ? (
           <div className="flex items-center justify-center py-20 text-red-600 text-sm">{error}</div>
         ) : (
           <>
-            {/* Stat cards */}
+            {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Total paid</p>
-                <p className="text-2xl font-bold mt-1 text-green-600">₱{fmt(totalPaid)}</p>
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Total submitted</p>
+                <p className="text-2xl font-bold mt-1 text-gray-900">{totalSubmitted}</p>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Outstanding</p>
-                <p className={`text-2xl font-bold mt-1 ${totalDue > 0 ? 'text-red-600' : 'text-gray-900'}`}>₱{fmt(totalDue)}</p>
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Pending review</p>
+                <p className={`text-2xl font-bold mt-1 ${pendingReview > 0 ? 'text-blue-600' : 'text-gray-900'}`}>{pendingReview}</p>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">On-time rate</p>
-                <p className="text-2xl font-bold mt-1 text-gray-900">{onTimeRate}%</p>
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Approved</p>
+                <p className={`text-2xl font-bold mt-1 ${approved > 0 ? 'text-green-600' : 'text-gray-900'}`}>{approved}</p>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Overdue</p>
-                <p className={`text-2xl font-bold mt-1 ${overdueCount > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                  {overdueCount} {overdueCount === 1 ? 'bill' : 'bills'}
-                </p>
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Rejected</p>
+                <p className={`text-2xl font-bold mt-1 ${rejected > 0 ? 'text-red-600' : 'text-gray-900'}`}>{rejected}</p>
               </div>
             </div>
 
-            {/* Payment ledger */}
-            {bills.length === 0 ? (
+            {/* Submit payment banner */}
+            <div className="bg-orange-50 border-2 border-dashed border-brand-orange rounded-xl px-5 py-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Have a receipt to submit?</p>
+                <p className="text-xs text-gray-500 mt-0.5">Upload your proof of payment and we'll notify the owner for review.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowModal(true)}
+                className="ml-4 shrink-0 px-4 py-2 bg-brand-orange hover:bg-brand-orange-dark text-white text-xs font-semibold rounded-lg transition"
+              >
+                Submit payment
+              </button>
+            </div>
+
+            {/* Payment history */}
+            {payments.length === 0 ? (
               <div className="bg-white rounded-xl border border-gray-200 px-6 py-14 text-center">
-                <p className="text-lg font-semibold text-gray-700">No payment history yet</p>
-                <p className="text-sm text-gray-500 max-w-sm mx-auto mt-1">Your payment records will appear here once bills are created.</p>
+                <p className="text-lg font-semibold text-gray-700">No payment submissions yet</p>
+                <p className="text-sm text-gray-500 max-w-sm mx-auto mt-1">
+                  Your payment submissions will appear here after you upload proof of payment.
+                </p>
               </div>
             ) : (
-              <>
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="px-5 py-3 border-b border-gray-100">
-                    <h2 className="text-sm font-semibold text-gray-700">Payment ledger</h2>
-                  </div>
-                  {/* Table header */}
-                  <div className="grid text-xs font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100 px-5 py-2.5"
-                    style={{ gridTemplateColumns: '2fr 1fr 1.2fr 1.2fr 1fr' }}>
-                    <div>Month</div>
-                    <div className="text-right">Amount</div>
-                    <div className="text-right">Due date</div>
-                    <div className="text-right">Date paid</div>
-                    <div className="text-right">Status</div>
-                  </div>
-                  <div className="divide-y divide-gray-100">
-                    {bills.map(bill => {
-                      const share = myShare(bill);
-                      const overdue = share && isOverdue(share, bill.dueDate);
-                      return (
-                        <div key={bill._id} className="grid items-center px-5 py-3.5 text-sm"
-                          style={{ gridTemplateColumns: '2fr 1fr 1.2fr 1.2fr 1fr' }}>
-                          <div className="font-medium text-gray-800">{formatMonth(bill.billingMonth)}</div>
-                          <div className="text-right text-gray-600">{share ? `₱${fmt(share.amount)}` : '—'}</div>
-                          <div className="text-right text-gray-500 text-xs">{formatDate(bill.dueDate)}</div>
-                          <div className="text-right text-gray-500 text-xs">{share?.paidAt ? formatDate(share.paidAt) : '—'}</div>
-                          <div className="flex justify-end">
-                            {share && <StatusBadge status={share.status} overdue={overdue} />}
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-5 py-3 border-b border-gray-100">
+                  <h2 className="text-sm font-semibold text-gray-700">Payment history</h2>
+                </div>
+                {/* Table header */}
+                <div
+                  className="grid text-xs font-semibold text-gray-400 uppercase tracking-wide bg-gray-50 border-b border-gray-100 px-5 py-2.5"
+                  style={{ gridTemplateColumns: '2fr 1fr 1.2fr 1.2fr 1fr 1.5rem' }}
+                >
+                  <div>Bill</div>
+                  <div className="text-right">Amount</div>
+                  <div className="text-right">Payment date</div>
+                  <div className="text-right">Submitted</div>
+                  <div className="text-right">Status</div>
+                  <div />
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {payments.map(payment => {
+                    const bill = billMap[payment.billId];
+                    const isOpen = expanded === payment._id;
+                    return (
+                      <div key={payment._id}>
+                        <div
+                          className="grid items-center px-5 py-3.5 text-sm cursor-pointer hover:bg-gray-50 transition"
+                          style={{ gridTemplateColumns: '2fr 1fr 1.2fr 1.2fr 1fr 1.5rem' }}
+                          onClick={() => toggleExpand(payment._id)}
+                        >
+                          <div className="font-medium text-gray-800">
+                            {bill
+                              ? `${bill.roomNameSnapshot} — ${formatMonth(bill.billingMonth)}`
+                              : '—'}
                           </div>
+                          <div className="text-right text-gray-600">₱{fmt(payment.amount)}</div>
+                          <div className="text-right text-gray-500 text-xs">{formatDate(payment.paymentDate)}</div>
+                          <div className="text-right text-gray-500 text-xs">{formatDate(payment.submittedAt)}</div>
+                          <div className="flex justify-end">
+                            <StatusBadge status={payment.status} />
+                          </div>
+                          <div className="text-gray-400 text-xs text-right select-none">{isOpen ? '▲' : '▼'}</div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Payment summary + Action needed */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <h2 className="text-sm font-semibold text-gray-700 mb-4">Payment summary</h2>
-                    <div className="space-y-2 text-sm">
-                      {[
-                        { label: 'Paid on time', value: `${paidCount} ${paidCount === 1 ? 'bill' : 'bills'}`, color: 'text-green-600' },
-                        { label: 'Pending',      value: `${pendingCount} ${pendingCount === 1 ? 'bill' : 'bills'}`, color: 'text-yellow-600' },
-                        { label: 'Overdue',      value: `${overdueCount} ${overdueCount === 1 ? 'bill' : 'bills'}`, color: 'text-red-600' },
-                      ].map(({ label, value, color }) => (
-                        <div key={label} className="flex justify-between">
-                          <span className="text-gray-500">{label}</span>
-                          <span className={`font-semibold ${color}`}>{value}</span>
-                        </div>
-                      ))}
-                      <div className="flex justify-between border-t border-gray-100 pt-2">
-                        <span className="text-gray-500">Total bills</span>
-                        <span className="font-semibold text-gray-800">{bills.length}</span>
+                        {isOpen && (
+                          <div className="px-5 pb-5 pt-2 bg-gray-50 border-t border-gray-100 space-y-3">
+                            {payment.rejectReason && (
+                              <p className="text-xs text-red-600">
+                                <span className="font-semibold">Reject reason: </span>{payment.rejectReason}
+                              </p>
+                            )}
+                            {payment.voidReason && (
+                              <p className="text-xs text-gray-500">
+                                <span className="font-semibold">Void reason: </span>{payment.voidReason}
+                              </p>
+                            )}
+                            <div>
+                              <p className="text-xs text-gray-400 mb-2 font-medium">Proof of payment</p>
+                              {payment.proofImagePath
+                                ? <ProofImage proofImagePath={payment.proofImagePath} />
+                                : <p className="text-xs text-gray-400">No proof image attached.</p>
+                              }
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  </div>
-
-                  {firstOverdueBill && firstOverdueShare ? (
-                    <div className="bg-white rounded-xl border border-red-200 p-5">
-                      <h2 className="text-sm font-semibold text-red-600 mb-2">Action needed</h2>
-                      <p className="text-sm text-gray-600">
-                        You have an overdue bill from{' '}
-                        <span className="font-medium">{formatMonth(firstOverdueBill.billingMonth)}</span>{' '}
-                        worth <span className="font-medium text-red-600">₱{fmt(firstOverdueShare.amount)}</span>.
-                        Please coordinate with your owner to settle the balance.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/portal/billing')}
-                        className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition"
-                      >
-                        View overdue bill
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="bg-white rounded-xl border border-green-200 p-5">
-                      <h2 className="text-sm font-semibold text-green-600 mb-2">All clear</h2>
-                      <p className="text-sm text-gray-600">You have no overdue bills. Keep it up!</p>
-                    </div>
-                  )}
+                    );
+                  })}
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
       </div>
+
+      {showModal && (
+        <SubmitPaymentModal
+          bills={bills}
+          user={user}
+          onClose={() => setShowModal(false)}
+          onSubmitted={() => { setShowModal(false); fetchAll(); }}
+        />
+      )}
     </div>
   );
 }
