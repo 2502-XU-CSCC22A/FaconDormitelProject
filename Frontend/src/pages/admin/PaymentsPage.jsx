@@ -231,7 +231,7 @@ function PaymentsPage() {
         <div className="bg-orange-50 px-4 py-3 grid grid-cols-12 gap-2 text-sm font-semibold text-gray-700">
           <div className="col-span-3">Tenant</div>
           <div className="col-span-3">Bill Description</div>
-          <div className="col-span-2 text-right">Amount</div>
+          <div className="col-span-2 text-center">Amount</div>
           <div className="col-span-2">Due Date</div>
           <div className="col-span-1">Status</div>
           <div className="col-span-1 text-right">Action</div>
@@ -269,7 +269,7 @@ function PaymentsPage() {
                 Room {share.roomNameSnapshot ?? '—'}{' '}
                 {share.billingMonth ? `— ${formatMonth(share.billingMonth)}` : ''}
               </div>
-              <div className="col-span-2 text-right font-semibold">
+              <div className="col-span-2 text-center font-semibold">
                 ₱{fmt(share.amount ?? 0)}
               </div>
               <div className="col-span-2 text-gray-500">
