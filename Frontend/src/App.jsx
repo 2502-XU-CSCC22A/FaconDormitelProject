@@ -1,7 +1,6 @@
 // src/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
 import SetPasswordPage from './pages/SetPasswordPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
@@ -31,17 +30,10 @@ function App() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-      {/* Tenant (client) dashboard — simple page, kept as-is for now */}
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <DashboardPage />
-          </ProtectedRoute>
-        }
-      />
+      {/* /dashboard redirects to the full tenant portal */}
+      <Route path="/dashboard" element={<Navigate to="/portal" replace />} />
 
-      {/* Tenant portal — multi-page (replaces /dashboard over time) */}
+      {/* Tenant portal — multi-page */}
       <Route
         path="/portal"
         element={
@@ -77,8 +69,8 @@ function App() {
       </Route>
 
       {/* Default and catch-all */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<Navigate to="/portal" replace />} />
+      <Route path="*" element={<Navigate to="/portal" replace />} />
     </Routes>
   );
 }
