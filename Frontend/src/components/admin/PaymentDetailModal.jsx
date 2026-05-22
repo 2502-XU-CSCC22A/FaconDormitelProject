@@ -1,6 +1,7 @@
 // src/components/admin/PaymentDetailModal.jsx
 import { useState, useEffect, useCallback } from 'react';
 import { authHeader } from '../../utils/auth';
+import { getShareDisplayStatus } from '../../utils/billStatus';
 
 const API = 'http://localhost:5000';
 
@@ -84,15 +85,15 @@ function PaymentStatusBadge({ status, large = false }) {
 }
 
 function ShareStatusBadge({ share }) {
-  const isOverdue = share.status === 'pending' && new Date(share.dueDate) < new Date();
-  if (share.status === 'paid') {
+  const displayStatus = getShareDisplayStatus(share);
+  if (displayStatus === 'paid') {
     return (
       <span className="inline-block px-3 py-1 text-sm font-semibold rounded-full bg-green-100 text-green-800">
-        Paid
+        Settled
       </span>
     );
   }
-  if (isOverdue) {
+  if (displayStatus === 'overdue') {
     return (
       <span className="inline-block px-3 py-1 text-sm font-semibold rounded-full bg-red-100 text-red-700">
         Overdue

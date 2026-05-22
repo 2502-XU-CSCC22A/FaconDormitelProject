@@ -5,7 +5,7 @@ const shareSchema = new mongoose.Schema({
   tenantEmail: { type: String, required: true },
   tenantName: { type: String, required: true },
   amount: { type: Number, required: true },
-  status: { type: String, enum: ['pending', 'paid'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'overdue', 'unpaid', 'paid', 'settled'], default: 'pending' },
   paidAt: { type: Date, default: null }
 }, { _id: true });
 
@@ -23,6 +23,7 @@ const billSchema = new mongoose.Schema({
   },
   totalAmount: { type: Number, required: true },
   dueDate: { type: Date, required: true },
+  gracePeriodDays: { type: Number, required: true, min: 0, default: 5 },
   shares: [shareSchema]
 }, { timestamps: true });
 

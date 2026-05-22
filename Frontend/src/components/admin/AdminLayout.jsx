@@ -56,7 +56,7 @@ function AdminLayout() {
       {/* ── Main content area ─────────────────────────── */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-6">
         {/* Tab navigation */}
-        <nav className="bg-white rounded-t-lg border border-gray-200 px-2 pt-2 flex gap-1 overflow-x-auto">
+        <nav className="bg-white rounded-t-lg border border-gray-200 px-2 pt-2 flex gap-1 overflow-x-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           {TABS.map((tab) => (
          <NavLink
           key={tab.to}

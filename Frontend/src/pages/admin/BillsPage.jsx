@@ -1,6 +1,7 @@
 // src/pages/admin/BillsPage.jsx
 import { useState, useEffect, useCallback } from 'react';
 import { authHeader } from '../../utils/auth';
+import { getBillDisplayStatus } from '../../utils/billStatus';
 import CreateBillModal from '../../components/admin/CreateBillModal';
 import BillDetailModal from '../../components/admin/BillDetailModal';
 import iconBills from '../../assets/BigBills2.png';
@@ -31,17 +32,15 @@ function fmt(n) {
 }
 
 function BillStatusBadge({ bill }) {
-  const allPaid = bill.shares.every((s) => s.status === 'paid');
-  const anyOverdue = bill.shares.some((s) => s.overdue);
-
-  if (allPaid) {
+  const status = getBillDisplayStatus(bill);
+  if (status === 'fully-paid') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
         Fully Paid
       </span>
     );
   }
-  if (anyOverdue) {
+  if (status === 'overdue') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
         Overdue

@@ -4,6 +4,7 @@ const Payment = require('../models/Payment');
 const Bill = require('../models/Bill');
 const User = require('../models/User');
 const { sendEmail } = require('../services/emailService');
+const { DEFAULT_GRACE_PERIOD_DAYS } = require('../config/billing');
 
 // POST /api/me/payments
 const submitPayment = async (req, res) => {
@@ -165,7 +166,8 @@ const approvePayment = async (req, res) => {
     payment.reviewedAt = new Date();
     payment.reviewedBy = req.user.userId;
 
-    share.status = 'paid';
+    const wasUnpaid = (share.status === 'unpaid');
+    share.status = wasUnpaid ? 'settled' : 'paid';
     share.paidAt = payment.paymentDate;
 
     await Promise.all([payment.save(), bill.save()]);
@@ -270,7 +272,13 @@ const voidPayment = async (req, res) => {
     payment.voidedBy = req.user.userId;
     payment.voidReason = reason.trim();
 
-    share.status = 'pending';
+    const grace = bill.gracePeriodDays ?? DEFAULT_GRACE_PERIOD_DAYS;
+    const now = Date.now();
+    const dueMs = new Date(bill.dueDate).getTime();
+    const overdueEndMs = dueMs + (grace * 24 * 60 * 60 * 1000);
+    if (now < dueMs) share.status = 'pending';
+    else if (now < overdueEndMs) share.status = 'overdue';
+    else share.status = 'unpaid';
     share.paidAt = null;
 
     await Promise.all([payment.save(), bill.save()]);

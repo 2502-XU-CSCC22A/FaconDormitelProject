@@ -4,28 +4,48 @@ const Room = require('../models/Room');
 const {
   DEFAULT_FLAT_FEE,
   DEFAULT_ELECTRICITY_RATE,
-  DEFAULT_DUE_DAYS_FROM_CREATION
+  DEFAULT_DUE_DAYS_FROM_CREATION,
+  DEFAULT_GRACE_PERIOD_DAYS
 } = require('../config/billing');
 
 const BILLING_MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-// --- HELPERS ---
+// --- STATUS TICK HELPERS (internal only, not exported) ---
 
-function addOverdueFlag(bill, now) {
-  const isPastDue = bill.dueDate < now;
-  const shares = bill.shares.map((s) => {
-    const obj = s.toObject ? s.toObject() : { ...s };
-    obj.overdue = s.status === 'pending' && isPastDue;
-    return obj;
-  });
-  const result = bill.toObject ? bill.toObject() : { ...bill };
-  result.shares = shares;
-  return result;
+function computeShareStatus(currentStatus, dueDate, gracePeriodDays) {
+  if (currentStatus === 'paid' || currentStatus === 'settled') return currentStatus;
+  const now = Date.now();
+  const dueMs = new Date(dueDate).getTime();
+  const overdueEndMs = dueMs + (gracePeriodDays * 24 * 60 * 60 * 1000);
+  if (now < dueMs) return 'pending';
+  if (now < overdueEndMs) return 'overdue';
+  return 'unpaid';
 }
 
+async function tickBillStatuses(bill) {
+  let changed = false;
+  const grace = bill.gracePeriodDays ?? DEFAULT_GRACE_PERIOD_DAYS;
+  for (const share of bill.shares) {
+    const newStatus = computeShareStatus(share.status, bill.dueDate, grace);
+    if (newStatus !== share.status) {
+      share.status = newStatus;
+      changed = true;
+    }
+  }
+  if (changed) await bill.save();
+  return changed;
+}
+
+async function tickBills(bills) {
+  for (const bill of bills) {
+    await tickBillStatuses(bill);
+  }
+}
+
+// --- 1. CREATE BILL (owner only) ---
 const createBill = async (req, res) => {
   try {
-    const { roomId, billingMonth, electricity, flatFee: flatFeeOverride, dueDate: dueDateOverride } = req.body;
+    const { roomId, billingMonth, electricity, flatFee: flatFeeOverride, dueDate: dueDateOverride, gracePeriodDays: gracePeriodOverride } = req.body;
     const ownerId = req.user.userId;
     if (!roomId || !billingMonth || !electricity) {
       return res.status(400).json({ message: 'roomId, billingMonth, and electricity are required' });
@@ -38,6 +58,9 @@ const createBill = async (req, res) => {
     }
     if (electricity.ratePerKwh !== undefined && (typeof electricity.ratePerKwh !== 'number' || electricity.ratePerKwh < 0)) {
       return res.status(400).json({ message: 'electricity.ratePerKwh must be a non-negative number' });
+    }
+    if (gracePeriodOverride !== undefined && (typeof gracePeriodOverride !== 'number' || gracePeriodOverride < 0)) {
+      return res.status(400).json({ message: 'gracePeriodDays must be a non-negative number' });
     }
 
     const { currentReading } = electricity;
@@ -77,6 +100,7 @@ const createBill = async (req, res) => {
     const electricityAmount = (currentReading - previousReading) * ratePerKwh;
     const totalAmount = flatFee + electricityAmount;
     const shareAmount = totalAmount / occupants.length;
+    const gracePeriodDays = gracePeriodOverride !== undefined ? gracePeriodOverride : DEFAULT_GRACE_PERIOD_DAYS;
 
     let dueDate;
     if (dueDateOverride) {
@@ -87,7 +111,7 @@ const createBill = async (req, res) => {
     } else {
       dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + DEFAULT_DUE_DAYS_FROM_CREATION);
-    }dueDate.setDate(dueDate.getDate() + DEFAULT_DUE_DAYS_FROM_CREATION);
+    }
 
     const shares = occupants.map((t) => ({
       tenantId: t._id,
@@ -106,10 +130,12 @@ const createBill = async (req, res) => {
       electricity: { previousReading, currentReading, ratePerKwh, amount: electricityAmount },
       totalAmount,
       dueDate,
+      gracePeriodDays,
       shares
     });
 
     await bill.save();
+    await tickBillStatuses(bill);
 
     return res.status(201).json({ bill });
   } catch (error) {
@@ -128,8 +154,8 @@ const createBill = async (req, res) => {
 const listBills = async (req, res) => {
   try {
     const bills = await Bill.find({ ownerId: req.user.userId }).sort({ billingMonth: -1 });
-    const now = new Date();
-    return res.status(200).json({ bills: bills.map((b) => addOverdueFlag(b, now)) });
+    await tickBills(bills);
+    return res.status(200).json({ bills: bills.map(b => b.toObject()) });
   } catch (error) {
     console.error('List bills error:', error);
     return res.status(500).json({ message: 'Server error while fetching bills' });
@@ -143,7 +169,8 @@ const getBill = async (req, res) => {
     if (!bill) {
       return res.status(404).json({ message: 'Bill not found' });
     }
-    return res.status(200).json({ bill: addOverdueFlag(bill, new Date()) });
+    await tickBillStatuses(bill);
+    return res.status(200).json({ bill: bill.toObject() });
   } catch (error) {
     console.error('Get bill error:', error);
     if (error.name === 'CastError') {
@@ -166,18 +193,22 @@ const markShareAsPaid = async (req, res) => {
       return res.status(404).json({ message: 'Share not found' });
     }
 
-    if (share.status === 'paid') {
+    if (share.status === 'paid' || share.status === 'settled') {
       return res.status(400).json({
-        message: 'Share is already marked as paid',
+        message: `Share is already marked as ${share.status}`,
         paidAt: share.paidAt
       });
     }
 
-    share.status = 'paid';
+    // Tick first so we know the true current state before overriding
+    await tickBillStatuses(bill);
+
+    const wasUnpaid = share.status === 'unpaid';
+    share.status = wasUnpaid ? 'settled' : 'paid';
     share.paidAt = new Date();
     await bill.save();
 
-    return res.status(200).json({ bill: addOverdueFlag(bill, new Date()) });
+    return res.status(200).json({ bill: bill.toObject() });
   } catch (error) {
     console.error('Mark share paid error:', error);
     if (error.name === 'CastError') {
@@ -192,29 +223,37 @@ const getMyBills = async (req, res) => {
   try {
     const userId = req.user.userId;
     const bills = await Bill.find({ 'shares.tenantId': userId }).sort({ billingMonth: -1 });
-    const now = new Date();
+    await tickBills(bills);
 
-    let arrears = 0;
+    let overdueAmount = 0;
+    let unpaidDebt = 0;
     let totalDue = 0;
 
-    const billsWithFlags = bills.map((b) => {
-      const isPastDue = b.dueDate < now;
-      const shares = b.shares.map((s) => {
-        const obj = s.toObject();
-        const isMyShare = s.tenantId && s.tenantId.toString() === userId.toString();
-        obj.overdue = s.status === 'pending' && isPastDue;
-        if (isMyShare && s.status === 'pending') {
-          totalDue += s.amount;
-          if (isPastDue) arrears += s.amount;
+    const billsOut = bills.map((b) => {
+      const obj = b.toObject();
+      for (const share of obj.shares) {
+        const isMyShare = share.tenantId && share.tenantId.toString() === userId.toString();
+        if (!isMyShare) continue;
+        if (share.status === 'overdue') {
+          overdueAmount += share.amount;
+          totalDue += share.amount;
+        } else if (share.status === 'unpaid') {
+          unpaidDebt += share.amount;
+          totalDue += share.amount;
+        } else if (share.status === 'pending') {
+          totalDue += share.amount;
         }
-        return obj;
-      });
-      const result = b.toObject();
-      result.shares = shares;
-      return result;
+      }
+      return obj;
     });
 
-    return res.status(200).json({ bills: billsWithFlags, arrears, totalDue });
+    return res.status(200).json({
+      bills: billsOut,
+      overdueAmount,
+      unpaidDebt,
+      totalDue,
+      arrears: overdueAmount  // backward-compat alias
+    });
   } catch (error) {
     console.error('Get my bills error:', error);
     return res.status(500).json({ message: 'Server error while fetching your bills' });
