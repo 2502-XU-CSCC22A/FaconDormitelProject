@@ -6,6 +6,11 @@ const userSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  phone: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   email: {
     type: String,
     required: [true, 'Email is required'],

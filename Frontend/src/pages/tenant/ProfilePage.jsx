@@ -3,25 +3,50 @@ import { getUser, authHeader } from '../../utils/auth';
 
 const API = 'http://localhost:5000';
 
+function EyeIcon({ open }) {
+  return open ? (
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  ) : (
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 012.05-3.375M6.228 6.228A9.97 9.97 0 0112 5c4.477 0 8.268 2.943 9.542 7a9.97 9.97 0 01-4.423 5.327M6.228 6.228L3 3m3.228 3.228l3.65 3.65M17.772 17.772L21 21m-3.228-3.228l-3.65-3.65" />
+    </svg>
+  );
+}
+
 function ProfilePage() {
-  const user = useMemo(() => getUser(), []);
+  const storedUser = useMemo(() => getUser(), []);
+  const [profile, setProfile] = useState({ name: '', email: storedUser?.email ?? '', phone: '' });
   const [latestBill, setLatestBill] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
   const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
-  const initials = user?.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
+  const initials = profile.name
+    ? profile.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+    : (storedUser?.email?.[0] ?? '?').toUpperCase();
 
   const fetchBill = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/me/bills`, { headers: { ...authHeader() } });
-      const data = await res.json();
-      if (res.ok && data.bills?.length > 0) setLatestBill(data.bills[0]);
+      const [profileRes, billsRes] = await Promise.all([
+        fetch(`${API}/api/me`,       { headers: { ...authHeader() } }),
+        fetch(`${API}/api/me/bills`, { headers: { ...authHeader() } }),
+      ]);
+      const [profileData, billsData] = await Promise.all([profileRes.json(), billsRes.json()]);
+      if (profileRes.ok) {
+        const u = profileData.user;
+        setProfile({ name: u.name, email: u.email, phone: u.phone });
+        setName(u.name);
+        setPhone(u.phone);
+      }
+      if (billsRes.ok && billsData.bills?.length > 0) setLatestBill(billsData.bills[0]);
     } catch { /* non-critical */ }
-    finally { setLoading(false); }
+    finally { setLoadingProfile(false); }
   }, []);
 
-  useEffect(() => { fetchBill(); }, [fetchBill]);
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
   const roomLabel = latestBill
     ? `${latestBill.roomNameSnapshot} · Active tenant`
@@ -50,8 +75,8 @@ function ProfilePage() {
                 {initials}
               </div>
               <div>
-                <p className="text-base font-semibold text-gray-800">{user?.name ?? 'Tenant'}</p>
-                <p className="text-xs text-gray-400">{loading ? '…' : roomLabel}</p>
+                <p className="text-base font-semibold text-gray-800">{profile.name || 'Tenant'}</p>
+                <p className="text-xs text-gray-400">{loadingProfile ? '…' : roomLabel}</p>
               </div>
             </div>
             <div className="space-y-3 text-sm">
