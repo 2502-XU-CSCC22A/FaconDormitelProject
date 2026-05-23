@@ -18,11 +18,15 @@ function initTransporter() {
     return;
   }
 
+  const port = parseInt(SMTP_PORT || '587', 10);
   transporter = nodemailer.createTransport({
     host: SMTP_HOST,
-    port: parseInt(SMTP_PORT || '465', 10),
-    secure: true,   // false for port 587 (STARTTLS); true for 465
-    family:4,
+    port: port,
+    secure: port === 465,   // true for 465 (SSL), false for 587 (STARTTLS)
+    family: 4,              // force IPv4 to avoid ENETUNREACH on Render
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    requireTLS: port === 587,  // explicitly require STARTTLS upgrade on 587
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS
