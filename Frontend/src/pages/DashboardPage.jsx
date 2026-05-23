@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { getUser, logout, authHeader } from '../utils/auth';
 import logoImage from '../assets/logo.png';
 
-const API = 'http://localhost:5000';
+const API = import.meta.env.VITE_API_BASE;
 
 function formatMonth(yyyyMM) {
   const [y, m] = yyyyMM.split('-');

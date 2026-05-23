@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { authHeader } from '../../utils/auth';
 
-const API = 'http://localhost:5000';
+const API = import.meta.env.VITE_API_BASE;
 
 const UNPAID_STATUSES = new Set(['pending', 'overdue', 'unpaid']);
 

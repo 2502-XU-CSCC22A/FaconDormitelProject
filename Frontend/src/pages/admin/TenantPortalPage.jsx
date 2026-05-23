@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { authHeader } from '../../utils/auth';
 
-const API = 'http://localhost:5000/api/admin';
+const API = `${import.meta.env.VITE_API_BASE}/api/admin`;
 
 function fmt(n) {
   return Number(n).toLocaleString('en-PH', {

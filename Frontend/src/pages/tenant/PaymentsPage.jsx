@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getUser, authHeader } from '../../utils/auth';
 import SubmitPaymentModal from '../../components/tenant/SubmitPaymentModal';
 
-const API = 'http://localhost:5000';
+const API = import.meta.env.VITE_API_BASE;
 
 function ProofImage({ proofImagePath }) {
   const [src, setSrc] = useState(null);

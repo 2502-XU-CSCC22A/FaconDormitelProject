@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { authHeader } from '../../utils/auth';
 import { getBillDisplayStatus, getShareDisplayStatus } from '../../utils/billStatus';
 
-const API = 'http://localhost:5000';
+const API = import.meta.env.VITE_API_BASE;
 
 const overlayStyle = {
   position: 'fixed',

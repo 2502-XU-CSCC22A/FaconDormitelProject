@@ -2,7 +2,7 @@
 import { authHeader } from '../../utils/auth';
 import emptyStateImage from '../../assets/SVG.png';
 
-const API_BASE = 'http://localhost:5000/api/rooms';
+const API_BASE = `${import.meta.env.VITE_API_BASE}/api/rooms`;
 
 function RoomsPage() {
   const [rooms, setRooms] = useState([]);

@@ -5,8 +5,8 @@ import InviteLinkModal from '../../components/admin/InviteLinkModal';
 import EditTenantRoomModal from '../../components/admin/EditTenantRoomModal';
 import iconTenants from '../../assets/BigTenant2.png';
 
-const API_BASE = 'http://localhost:5000/api/admin/tenants';
-const ROOMS_API = 'http://localhost:5000/api/admin/rooms';
+const API_BASE = `${import.meta.env.VITE_API_BASE}/api/admin/tenants`;
+const ROOMS_API = `${import.meta.env.VITE_API_BASE}/api/admin/rooms`;
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);

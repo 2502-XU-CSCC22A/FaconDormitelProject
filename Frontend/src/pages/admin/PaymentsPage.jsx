@@ -5,7 +5,7 @@ import { getShareDisplayStatus } from '../../utils/billStatus';
 import PaymentDetailModal from '../../components/admin/PaymentDetailModal';
 import iconPayments from '../../assets/payments.png';
 
-const API = 'http://localhost:5000';
+const API = import.meta.env.VITE_API_BASE;
 
 function formatMonth(yyyyMM) {
   const [y, m] = yyyyMM.split('-');

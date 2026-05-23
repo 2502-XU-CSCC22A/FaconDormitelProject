@@ -6,7 +6,7 @@ import CreateBillModal from '../../components/admin/CreateBillModal';
 import BillDetailModal from '../../components/admin/BillDetailModal';
 import iconBills from '../../assets/BigBills2.png';
 
-const API = 'http://localhost:5000';
+const API = import.meta.env.VITE_API_BASE;
 
 function formatMonth(yyyyMM) {
   const [y, m] = yyyyMM.split('-');

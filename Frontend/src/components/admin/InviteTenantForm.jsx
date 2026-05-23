@@ -77,7 +77,7 @@ function InviteTenantForm({ onTenantCreated }) {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/admin/tenants', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE}/api/admin/tenants`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

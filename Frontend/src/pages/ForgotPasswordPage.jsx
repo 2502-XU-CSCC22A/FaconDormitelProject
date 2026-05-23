@@ -23,7 +23,7 @@ function ForgotPasswordPage() {
     setIsSubmitting(true);
 
     try {
-      await fetch('http://localhost:5000/api/auth/forgot-password', {
+      await fetch(`${import.meta.env.VITE_API_BASE}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })
