@@ -1,0 +1,13 @@
+﻿node_modules
+.env
+.env.*
+*.env
+*.env.*
+.git
+.gitignore
+npm-debug.log
+scripts/owners.json
+uploads/payment-proofs/*
+!uploads/payment-proofs/.gitkeep
+Dockerfile
+.dockerignore
