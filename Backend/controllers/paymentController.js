@@ -3,7 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const Payment = require('../models/Payment');
 const Bill = require('../models/Bill');
 const User = require('../models/User');
-const { sendEmail } = require('../services/emailService');
+const { sendEmail, buildPaymentConfirmationEmail } = require('../services/emailService');
 const { DEFAULT_GRACE_PERIOD_DAYS } = require('../config/billing');
 
 // POST /api/me/payments
@@ -166,11 +166,30 @@ const approvePayment = async (req, res) => {
     payment.reviewedAt = new Date();
     payment.reviewedBy = req.user.userId;
 
-    const wasUnpaid = (share.status === 'unpaid');
-    share.status = wasUnpaid ? 'settled' : 'paid';
+    const wasArrears = share.status === 'arrears' || share.status === 'unpaid';
+    share.status = wasArrears ? 'settled' : 'paid';
     share.paidAt = payment.paymentDate;
 
     await Promise.all([payment.save(), bill.save()]);
+
+    // Send payment confirmation email (fire-and-forget)
+    try {
+      const tenant = await User.findById(payment.tenantId).select('name email');
+      if (tenant) {
+        const { subject, html, text } = buildPaymentConfirmationEmail({
+          tenantName: tenant.name || tenant.email,
+          roomName: bill.roomNameSnapshot,
+          billingMonth: bill.billingMonth,
+          amount: payment.amount,
+          paymentDate: payment.paymentDate
+        });
+        sendEmail({ to: tenant.email, subject, html, text }).catch(err =>
+          console.error('[approvePayment] confirmation email error:', err)
+        );
+      }
+    } catch (emailErr) {
+      console.error('[approvePayment] email lookup error:', emailErr);
+    }
 
     return res.status(200).json({ payment });
   } catch (err) {
@@ -278,7 +297,7 @@ const voidPayment = async (req, res) => {
     const overdueEndMs = dueMs + (grace * 24 * 60 * 60 * 1000);
     if (now < dueMs) share.status = 'pending';
     else if (now < overdueEndMs) share.status = 'overdue';
-    else share.status = 'unpaid';
+    else share.status = 'arrears';
     share.paidAt = null;
 
     await Promise.all([payment.save(), bill.save()]);

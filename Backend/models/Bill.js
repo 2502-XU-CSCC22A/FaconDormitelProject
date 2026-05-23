@@ -5,8 +5,10 @@ const shareSchema = new mongoose.Schema({
   tenantEmail: { type: String, required: true },
   tenantName: { type: String, required: true },
   amount: { type: Number, required: true },
-  status: { type: String, enum: ['pending', 'overdue', 'unpaid', 'paid', 'settled'], default: 'pending' },
-  paidAt: { type: Date, default: null }
+  status: { type: String, enum: ['pending', 'overdue', 'arrears', 'unpaid', 'paid', 'settled'], default: 'pending' },
+  paidAt: { type: Date, default: null },
+  overdueEmailSentAt: { type: Date, default: null },
+  arrearsEmailSentAt: { type: Date, default: null }
 }, { _id: true });
 
 const billSchema = new mongoose.Schema({

@@ -7,11 +7,18 @@ const {
   DEFAULT_DUE_DAYS_FROM_CREATION,
   DEFAULT_GRACE_PERIOD_DAYS
 } = require('../config/billing');
+const {
+  sendEmail,
+  buildBillCreatedEmail,
+  buildOverdueReminderEmail,
+  buildArrearsNoticeEmail
+} = require('../services/emailService');
 
 const BILLING_MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-// --- STATUS TICK HELPERS (internal only, not exported) ---
+// --- STATUS TICK HELPERS ---
 
+// Pending → Overdue → Arrears (was Unpaid). Terminal: paid, settled.
 function computeShareStatus(currentStatus, dueDate, gracePeriodDays) {
   if (currentStatus === 'paid' || currentStatus === 'settled') return currentStatus;
   const now = Date.now();
@@ -19,21 +26,67 @@ function computeShareStatus(currentStatus, dueDate, gracePeriodDays) {
   const overdueEndMs = dueMs + (gracePeriodDays * 24 * 60 * 60 * 1000);
   if (now < dueMs) return 'pending';
   if (now < overdueEndMs) return 'overdue';
-  return 'unpaid';
+  return 'arrears';
 }
 
 async function tickBillStatuses(bill) {
   let changed = false;
   const grace = bill.gracePeriodDays ?? DEFAULT_GRACE_PERIOD_DAYS;
+  const emailTasks = [];
+
   for (const share of bill.shares) {
-    const newStatus = computeShareStatus(share.status, bill.dueDate, grace);
-    if (newStatus !== share.status) {
+    const oldDbStatus = share.status;
+    const newStatus = computeShareStatus(oldDbStatus, bill.dueDate, grace);
+
+    if (newStatus !== oldDbStatus) {
       share.status = newStatus;
       changed = true;
+
+      // Email on overdue transition — only from pending (fresh bills, not legacy migration)
+      if (newStatus === 'overdue' && oldDbStatus === 'pending' && !share.overdueEmailSentAt) {
+        share.overdueEmailSentAt = new Date();
+        emailTasks.push({ type: 'overdue', share: share.toObject ? share.toObject() : share, bill });
+      }
+      // Email on arrears transition — only from overdue (not from legacy 'unpaid')
+      if (newStatus === 'arrears' && oldDbStatus === 'overdue' && !share.arrearsEmailSentAt) {
+        share.arrearsEmailSentAt = new Date();
+        emailTasks.push({ type: 'arrears', share: share.toObject ? share.toObject() : share, bill });
+      }
     }
   }
+
   if (changed) await bill.save();
+
+  // Fire emails asynchronously (after save so timestamps are committed)
+  for (const task of emailTasks) {
+    fireTransitionEmail(task).catch(err =>
+      console.error('[tick] email error:', err)
+    );
+  }
+
   return changed;
+}
+
+async function fireTransitionEmail({ type, share, bill }) {
+  if (type === 'overdue') {
+    const { subject, html, text } = buildOverdueReminderEmail({
+      tenantName: share.tenantName,
+      roomName: bill.roomNameSnapshot,
+      billingMonth: bill.billingMonth,
+      shareAmount: share.amount,
+      dueDate: bill.dueDate
+    });
+    await sendEmail({ to: share.tenantEmail, subject, html, text });
+  } else if (type === 'arrears') {
+    const { subject, html, text } = buildArrearsNoticeEmail({
+      tenantName: share.tenantName,
+      roomName: bill.roomNameSnapshot,
+      billingMonth: bill.billingMonth,
+      shareAmount: share.amount,
+      totalArrears: share.amount
+    });
+    await sendEmail({ to: share.tenantEmail, subject, html, text });
+  }
 }
 
 async function tickBills(bills) {
@@ -68,7 +121,6 @@ const createBill = async (req, res) => {
       return res.status(400).json({ message: 'electricity.currentReading is required' });
     }
 
-    // Auto-fill previousReading from the most recent prior bill for this room
     let { previousReading } = electricity;
     if (previousReading === undefined || previousReading === null) {
       const prior = await Bill.findOne({ roomId }).sort({ billingMonth: -1 }).select('electricity.currentReading');
@@ -137,6 +189,22 @@ const createBill = async (req, res) => {
     await bill.save();
     await tickBillStatuses(bill);
 
+    // Send bill-created email to each tenant (fire-and-forget)
+    for (const share of bill.shares) {
+      const { subject, html, text } = buildBillCreatedEmail({
+        tenantName: share.tenantName,
+        roomName: roomNameSnapshot,
+        billingMonth,
+        shareAmount: share.amount,
+        flatFee,
+        electricityAmount,
+        dueDate
+      });
+      sendEmail({ to: share.tenantEmail, subject, html, text }).catch(err =>
+        console.error('[createBill] email error:', err)
+      );
+    }
+
     return res.status(201).json({ bill });
   } catch (error) {
     console.error('Create bill error:', error);
@@ -150,7 +218,7 @@ const createBill = async (req, res) => {
   }
 };
 
-// --- 2. LIST BILLS (owner only, owner-scoped) ---
+// --- 2. LIST BILLS (owner only) ---
 const listBills = async (req, res) => {
   try {
     const bills = await Bill.find({ ownerId: req.user.userId }).sort({ billingMonth: -1 });
@@ -162,7 +230,7 @@ const listBills = async (req, res) => {
   }
 };
 
-// --- 3. GET BILL (owner only, owner-scoped) ---
+// --- 3. GET BILL (owner only) ---
 const getBill = async (req, res) => {
   try {
     const bill = await Bill.findOne({ _id: req.params.id, ownerId: req.user.userId });
@@ -200,11 +268,11 @@ const markShareAsPaid = async (req, res) => {
       });
     }
 
-    // Tick first so we know the true current state before overriding
     await tickBillStatuses(bill);
 
-    const wasUnpaid = share.status === 'unpaid';
-    share.status = wasUnpaid ? 'settled' : 'paid';
+    // arrears and legacy unpaid → settled; overdue/pending → paid
+    const wasArrears = share.status === 'arrears' || share.status === 'unpaid';
+    share.status = wasArrears ? 'settled' : 'paid';
     share.paidAt = new Date();
     await bill.save();
 
@@ -218,7 +286,7 @@ const markShareAsPaid = async (req, res) => {
   }
 };
 
-// --- 5. GET MY BILLS (authenticated user, tenant view) ---
+// --- 5. GET MY BILLS (tenant view) ---
 const getMyBills = async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -226,6 +294,7 @@ const getMyBills = async (req, res) => {
     await tickBills(bills);
 
     let overdueAmount = 0;
+    let arrearsAmount = 0;
     let unpaidDebt = 0;
     let totalDue = 0;
 
@@ -234,11 +303,12 @@ const getMyBills = async (req, res) => {
       for (const share of obj.shares) {
         const isMyShare = share.tenantId && share.tenantId.toString() === userId.toString();
         if (!isMyShare) continue;
-        if (share.status === 'overdue') {
-          overdueAmount += share.amount;
-          totalDue += share.amount;
-        } else if (share.status === 'unpaid') {
+        if (share.status === 'arrears' || share.status === 'unpaid') {
+          arrearsAmount += share.amount;
           unpaidDebt += share.amount;
+          totalDue += share.amount;
+        } else if (share.status === 'overdue') {
+          overdueAmount += share.amount;
           totalDue += share.amount;
         } else if (share.status === 'pending') {
           totalDue += share.amount;
@@ -250,9 +320,10 @@ const getMyBills = async (req, res) => {
     return res.status(200).json({
       bills: billsOut,
       overdueAmount,
+      arrearsAmount,
       unpaidDebt,
       totalDue,
-      arrears: overdueAmount  // backward-compat alias
+      arrears: arrearsAmount
     });
   } catch (error) {
     console.error('Get my bills error:', error);

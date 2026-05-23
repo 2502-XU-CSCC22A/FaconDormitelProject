@@ -39,6 +39,13 @@ function ShareStatusBadge({ share }) {
       </span>
     );
   }
+  if (displayStatus === 'arrears') {
+    return (
+      <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-orange-100 text-orange-700">
+        Arrears
+      </span>
+    );
+  }
   if (displayStatus === 'overdue') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
@@ -224,7 +231,7 @@ function PaymentsPage() {
         <div className="bg-orange-50 px-4 py-3 grid grid-cols-12 gap-2 text-sm font-semibold text-gray-700">
           <div className="col-span-3">Tenant</div>
           <div className="col-span-3">Bill Description</div>
-          <div className="col-span-2 text-right">Amount</div>
+          <div className="col-span-2 text-center">Amount</div>
           <div className="col-span-2">Due Date</div>
           <div className="col-span-1">Status</div>
           <div className="col-span-1 text-right">Action</div>
@@ -262,7 +269,7 @@ function PaymentsPage() {
                 Room {share.roomNameSnapshot ?? '—'}{' '}
                 {share.billingMonth ? `— ${formatMonth(share.billingMonth)}` : ''}
               </div>
-              <div className="col-span-2 text-right font-semibold">
+              <div className="col-span-2 text-center font-semibold">
                 ₱{fmt(share.amount ?? 0)}
               </div>
               <div className="col-span-2 text-gray-500">

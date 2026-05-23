@@ -40,6 +40,13 @@ function BillStatusBadge({ bill }) {
       </span>
     );
   }
+  if (status === 'arrears') {
+    return (
+      <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-orange-100 text-orange-700">
+        Arrears
+      </span>
+    );
+  }
   if (status === 'overdue') {
     return (
       <span className="inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">
