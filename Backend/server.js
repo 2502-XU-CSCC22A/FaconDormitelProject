@@ -9,9 +9,9 @@ const roomRoutes = require('./routes/room');
 const adminRoutes = require('./routes/admin');
 const meRoutes = require('./routes/me');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
-// Connect to the Docker MongoDB database
-console.log("Current URI being used:", process.env.MONGO_URI);
 if (process.env.NODE_ENV !== 'test') {
   mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('MongoDB is successfully connected!'))
@@ -20,8 +20,25 @@ if (process.env.NODE_ENV !== 'test') {
 fs.mkdirSync('uploads/payment-proofs', { recursive: true });
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// Security headers
+app.use(helmet());
+
+// CORS — only allow the configured frontend origin
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(s => s.trim());
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
+
+app.use(express.json({ limit: '1mb' }));
 app.use('/uploads', authMiddleware, express.static('uploads'));
 
 app.use('/api/auth', authRoutes);
