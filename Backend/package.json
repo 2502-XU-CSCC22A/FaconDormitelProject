@@ -4,20 +4,17 @@
   "description": "DormiSync Backend",
   "main": "server.js",
   "scripts": {
+    "start": "node server.js",
     "test": "jest --runInBand"
   },
   "author": "",
   "license": "ISC",
-  "devDependencies": {
-    "express": "^5.2.1",
-    "jest": "^30.3.0",
-    "supertest": "^7.2.2"
-  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
@@ -25,5 +22,9 @@
     "multer": "^2.1.1",
     "nodemailer": "^8.0.7",
     "uuid": "^7.0.3"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "supertest": "^7.2.2"
   }
 }
