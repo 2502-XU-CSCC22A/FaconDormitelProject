@@ -20,8 +20,9 @@ function initTransporter() {
 
   transporter = nodemailer.createTransport({
     host: SMTP_HOST,
-    port: parseInt(SMTP_PORT || '587', 10),
-    secure: false,   // false for port 587 (STARTTLS); true for 465
+    port: parseInt(SMTP_PORT || '465', 10),
+    secure: true,   // false for port 587 (STARTTLS); true for 465
+    family:4,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS
