@@ -53,7 +53,7 @@ export const logout = async () => {
   // Try to notify the backend (optional — JWTs are stateless)
   if (token) {
     try {
-      await fetch('http://localhost:5000/api/auth/logout', {
+      await fetch(`${import.meta.env.VITE_API_BASE}/api/auth/logout`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
