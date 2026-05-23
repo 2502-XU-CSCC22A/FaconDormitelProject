@@ -1,6 +1,3 @@
-// src/pages/tenant/ProfilePage.jsx
-// Edit info and change-password are UI-only — PATCH /api/me and change-password
-// endpoints do not exist yet (Phase 2 backend work).
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getUser, authHeader } from '../../utils/auth';
 
@@ -14,17 +11,6 @@ function ProfilePage() {
   const today = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
   const initials = user?.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?';
 
-  // Form state — pre-filled from localStorage user
-  const [name, setName] = useState(user?.name ?? '');
-  const [email, setEmail] = useState(user?.email ?? '');
-  const [phone, setPhone] = useState('');
-  const [editMsg, setEditMsg] = useState('');
-
-  const [curPw, setCurPw] = useState('');
-  const [newPw, setNewPw] = useState('');
-  const [confirmPw, setConfirmPw] = useState('');
-  const [pwMsg, setPwMsg] = useState('');
-
   const fetchBill = useCallback(async () => {
     setLoading(true);
     try {
@@ -36,19 +22,6 @@ function ProfilePage() {
   }, []);
 
   useEffect(() => { fetchBill(); }, [fetchBill]);
-
-  const handleEditSubmit = (e) => {
-    e.preventDefault();
-    setEditMsg('Profile editing is not available yet — backend endpoint coming soon.');
-    setTimeout(() => setEditMsg(''), 4000);
-  };
-
-  const handlePwSubmit = (e) => {
-    e.preventDefault();
-    if (newPw !== confirmPw) { setPwMsg('New passwords do not match.'); return; }
-    setPwMsg('Password change is not available yet — backend endpoint coming soon.');
-    setTimeout(() => setPwMsg(''), 4000);
-  };
 
   const roomLabel = latestBill
     ? `${latestBill.roomNameSnapshot} · Active tenant`
@@ -69,7 +42,6 @@ function ProfilePage() {
       </div>
 
       <div className="flex-1 px-6 py-6 space-y-5">
-        {/* Profile info + Edit form */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Current info */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -84,10 +56,10 @@ function ProfilePage() {
             </div>
             <div className="space-y-3 text-sm">
               {[
-                { label: 'Email',         value: user?.email ?? '—' },
-                { label: 'Phone',         value: phone || '—' },
-                { label: 'Move-in date',  value: '—' },
-                { label: 'Room',          value: latestBill?.roomNameSnapshot ?? '—' },
+                { label: 'Email',        value: user?.email ?? '—' },
+                { label: 'Phone',        value: '—' },
+                { label: 'Move-in date', value: '—' },
+                { label: 'Room',         value: latestBill?.roomNameSnapshot ?? '—' },
               ].map(({ label, value }) => (
                 <div key={label} className="flex justify-between">
                   <span className="text-gray-400">{label}</span>
@@ -97,93 +69,41 @@ function ProfilePage() {
             </div>
           </div>
 
-          {/* Edit form */}
+          {/* Edit info — read-only */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Edit info</h2>
-            <form onSubmit={handleEditSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Full name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  className="w-full bg-gray-900 text-white text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-orange"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  className="w-full bg-gray-900 text-white text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-orange"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Phone</label>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="+63 9XX XXX XXXX"
-                  className="w-full bg-gray-900 text-white text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-orange placeholder:text-gray-600"
-                />
-              </div>
-              {editMsg && <p className="text-xs text-amber-600">{editMsg}</p>}
-              <button
-                type="submit"
-                className="w-full py-2 text-sm font-semibold rounded-lg bg-brand-orange hover:bg-brand-orange-dark text-white transition mt-1"
-              >
-                Save changes
-              </button>
-            </form>
+            <h2 className="text-sm font-semibold text-gray-700 mb-1">Edit info</h2>
+            <p className="text-xs text-amber-600 mb-4">Profile editing is coming soon — this section is read-only for now.</p>
+            <div className="space-y-3">
+              {[
+                { label: 'Full name', value: user?.name },
+                { label: 'Email',    value: user?.email },
+                { label: 'Phone',    value: null },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <p className="text-xs text-gray-400 mb-1">{label}</p>
+                  <div className="w-full bg-gray-100 text-gray-500 text-sm rounded-lg px-3 py-2.5 cursor-not-allowed select-none">
+                    {value ?? <span className="italic text-gray-400">not set</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Change password */}
+        {/* Change password — read-only */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Change password</h2>
-          <form onSubmit={handlePwSubmit}>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Current password</label>
-                <input
-                  type="password"
-                  value={curPw}
-                  onChange={e => setCurPw(e.target.value)}
-                  className="w-full bg-gray-900 text-white text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-orange"
-                  placeholder="••••••••"
-                />
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">Change password</h2>
+          <p className="text-xs text-amber-600 mb-4">Password changes are coming soon — contact your building owner in the meantime.</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {['Current password', 'New password', 'Confirm new password'].map(label => (
+              <div key={label}>
+                <p className="text-xs text-gray-400 mb-1">{label}</p>
+                <div className="w-full bg-gray-100 text-gray-400 text-sm rounded-lg px-3 py-2.5 cursor-not-allowed select-none tracking-widest">
+                  ••••••••
+                </div>
               </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">New password</label>
-                <input
-                  type="password"
-                  value={newPw}
-                  onChange={e => setNewPw(e.target.value)}
-                  className="w-full bg-gray-900 text-white text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-orange"
-                  placeholder="••••••••"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Confirm new password</label>
-                <input
-                  type="password"
-                  value={confirmPw}
-                  onChange={e => setConfirmPw(e.target.value)}
-                  className="w-full bg-gray-900 text-white text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-orange"
-                  placeholder="••••••••"
-                />
-              </div>
-            </div>
-            {pwMsg && <p className="text-xs text-amber-600 mt-2">{pwMsg}</p>}
-            <button
-              type="submit"
-              className="mt-4 px-5 py-2 text-sm font-semibold rounded-lg bg-gray-900 hover:bg-gray-700 text-white transition"
-            >
-              Update password
-            </button>
-          </form>
+            ))}
+          </div>
         </div>
       </div>
     </div>
