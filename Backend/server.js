@@ -33,6 +33,7 @@ app.use(cors({
     if (allowedOrigins.indexOf(origin) !== -1) {
       return callback(null, true);
     }
+    console.warn('[CORS] Rejected origin:', JSON.stringify(origin), 'allowed:', JSON.stringify(allowedOrigins));
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true
