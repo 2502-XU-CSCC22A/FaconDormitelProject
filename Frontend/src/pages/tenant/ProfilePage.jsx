@@ -27,8 +27,26 @@ function ProfilePage() {
     ? profile.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : (storedUser?.email?.[0] ?? '?').toUpperCase();
 
-  const fetchBill = useCallback(async () => {
-    setLoading(true);
+  // Edit form state
+  const [name, setName]   = useState('');
+  const [phone, setPhone] = useState('');
+  const [editMsg, setEditMsg]         = useState({ text: '', ok: false });
+  const [editLoading, setEditLoading] = useState(false);
+
+  // Password form state
+  const [curPw,     setCurPw]     = useState('');
+  const [newPw,     setNewPw]     = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwMsg,     setPwMsg]     = useState({ text: '', ok: false });
+  const [pwLoading, setPwLoading] = useState(false);
+
+  // Show/hide toggles
+  const [showCurPw,     setShowCurPw]     = useState(false);
+  const [showNewPw,     setShowNewPw]     = useState(false);
+  const [showConfirmPw, setShowConfirmPw] = useState(false);
+
+  const fetchProfile = useCallback(async () => {
+    setLoadingProfile(true);
     try {
       const [profileRes, billsRes] = await Promise.all([
         fetch(`${API}/api/me`,       { headers: { ...authHeader() } }),
@@ -51,6 +69,67 @@ function ProfilePage() {
   const roomLabel = latestBill
     ? `${latestBill.roomNameSnapshot} · Active tenant`
     : 'No room assigned';
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    setEditLoading(true);
+    setEditMsg({ text: '', ok: false });
+    try {
+      const res = await fetch(`${API}/api/me`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ name: name.trim(), phone: phone.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setProfile(prev => ({ ...prev, name: data.user.name, phone: data.user.phone }));
+        try {
+          const stored = JSON.parse(localStorage.getItem('user') || '{}');
+          localStorage.setItem('user', JSON.stringify({ ...stored, name: data.user.name }));
+        } catch { /* ignore */ }
+        setEditMsg({ text: 'Profile updated successfully.', ok: true });
+      } else {
+        setEditMsg({ text: data.message || 'Update failed.', ok: false });
+      }
+    } catch {
+      setEditMsg({ text: 'Failed to connect to the server.', ok: false });
+    } finally {
+      setEditLoading(false);
+      setTimeout(() => setEditMsg({ text: '', ok: false }), 4000);
+    }
+  };
+
+  const handlePwSubmit = async (e) => {
+    e.preventDefault();
+    if (newPw !== confirmPw) {
+      setPwMsg({ text: 'New passwords do not match.', ok: false });
+      return;
+    }
+    setPwLoading(true);
+    setPwMsg({ text: '', ok: false });
+    try {
+      const res = await fetch(`${API}/api/me/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ currentPassword: curPw, newPassword: newPw }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCurPw(''); setNewPw(''); setConfirmPw('');
+        setShowCurPw(false); setShowNewPw(false); setShowConfirmPw(false);
+        setPwMsg({ text: 'Password updated successfully.', ok: true });
+      } else {
+        setPwMsg({ text: data.message || 'Password change failed.', ok: false });
+      }
+    } catch {
+      setPwMsg({ text: 'Failed to connect to the server.', ok: false });
+    } finally {
+      setPwLoading(false);
+      setTimeout(() => setPwMsg({ text: '', ok: false }), 5000);
+    }
+  };
+
+  const inputClass = 'w-full bg-gray-900 text-white text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-orange placeholder:text-gray-600';
 
   return (
     <div className="min-h-full flex flex-col">
@@ -81,8 +160,8 @@ function ProfilePage() {
             </div>
             <div className="space-y-3 text-sm">
               {[
-                { label: 'Email',        value: user?.email ?? '—' },
-                { label: 'Phone',        value: '—' },
+                { label: 'Email',        value: profile.email || '—' },
+                { label: 'Phone',        value: profile.phone || '—' },
                 { label: 'Move-in date', value: '—' },
                 { label: 'Room',         value: latestBill?.roomNameSnapshot ?? '—' },
               ].map(({ label, value }) => (
@@ -96,39 +175,116 @@ function ProfilePage() {
 
           {/* Edit info — read-only */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1">Edit info</h2>
-            <p className="text-xs text-amber-600 mb-4">Profile editing is coming soon — this section is read-only for now.</p>
-            <div className="space-y-3">
-              {[
-                { label: 'Full name', value: user?.name },
-                { label: 'Email',    value: user?.email },
-                { label: 'Phone',    value: null },
-              ].map(({ label, value }) => (
-                <div key={label}>
-                  <p className="text-xs text-gray-400 mb-1">{label}</p>
-                  <div className="w-full bg-gray-100 text-gray-500 text-sm rounded-lg px-3 py-2.5 cursor-not-allowed select-none">
-                    {value ?? <span className="italic text-gray-400">not set</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <h2 className="text-sm font-semibold text-gray-700 mb-4">Edit info</h2>
+            <form onSubmit={handleEditSubmit} className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Full name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  className={inputClass}
+                  placeholder="Your full name"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={profile.email}
+                  disabled
+                  className="w-full bg-gray-800 text-gray-500 text-sm rounded-lg px-3 py-2.5 cursor-not-allowed"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Phone</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="+63 9XX XXX XXXX"
+                  className={inputClass}
+                />
+              </div>
+              {editMsg.text && (
+                <p className={`text-xs ${editMsg.ok ? 'text-green-600' : 'text-red-500'}`}>{editMsg.text}</p>
+              )}
+              <button
+                type="submit"
+                disabled={editLoading}
+                className="w-full py-2 text-sm font-semibold rounded-lg bg-brand-orange hover:bg-brand-orange-dark text-white transition mt-1 disabled:opacity-50"
+              >
+                {editLoading ? 'Saving…' : 'Save changes'}
+              </button>
+            </form>
           </div>
         </div>
 
         {/* Change password — read-only */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-1">Change password</h2>
-          <p className="text-xs text-amber-600 mb-4">Password changes are coming soon — contact your building owner in the meantime.</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {['Current password', 'New password', 'Confirm new password'].map(label => (
-              <div key={label}>
-                <p className="text-xs text-gray-400 mb-1">{label}</p>
-                <div className="w-full bg-gray-100 text-gray-400 text-sm rounded-lg px-3 py-2.5 cursor-not-allowed select-none tracking-widest">
-                  ••••••••
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">Change password</h2>
+          <form onSubmit={handlePwSubmit}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Current password</label>
+                <div className="relative">
+                  <input
+                    type={showCurPw ? 'text' : 'password'}
+                    value={curPw}
+                    onChange={e => setCurPw(e.target.value)}
+                    className={`${inputClass} pr-10`}
+                    placeholder="••••••••"
+                  />
+                  <button type="button" onClick={() => setShowCurPw(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition">
+                    <EyeIcon open={showCurPw} />
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">New password</label>
+                <div className="relative">
+                  <input
+                    type={showNewPw ? 'text' : 'password'}
+                    value={newPw}
+                    onChange={e => setNewPw(e.target.value)}
+                    className={`${inputClass} pr-10`}
+                    placeholder="••••••••"
+                  />
+                  <button type="button" onClick={() => setShowNewPw(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition">
+                    <EyeIcon open={showNewPw} />
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Confirm new password</label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPw ? 'text' : 'password'}
+                    value={confirmPw}
+                    onChange={e => setConfirmPw(e.target.value)}
+                    className={`${inputClass} pr-10`}
+                    placeholder="••••••••"
+                  />
+                  <button type="button" onClick={() => setShowConfirmPw(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition">
+                    <EyeIcon open={showConfirmPw} />
+                  </button>
+                </div>
+              </div>
+            </div>
+            {pwMsg.text && (
+              <p className={`text-xs mt-2 ${pwMsg.ok ? 'text-green-600' : 'text-red-500'}`}>{pwMsg.text}</p>
+            )}
+            <button
+              type="submit"
+              disabled={pwLoading}
+              className="mt-4 px-5 py-2 text-sm font-semibold rounded-lg bg-gray-900 hover:bg-gray-700 text-white transition disabled:opacity-50"
+            >
+              {pwLoading ? 'Updating…' : 'Update password'}
+            </button>
+          </form>
         </div>
       </div>
     </div>
