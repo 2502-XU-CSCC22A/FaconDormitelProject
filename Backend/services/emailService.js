@@ -1,7 +1,9 @@
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 let transporter = null;
 let isConfigured = false;
+let resendClient = null;
 
 /**
  * Initialize the SMTP transporter. Called automatically on first use.
@@ -37,6 +39,17 @@ function initTransporter() {
   console.log('[emailService] SMTP transporter initialized');
 }
 
+function initResend() {
+  if (resendClient !== null) return;
+  const { RESEND_API_KEY } = process.env;
+  if (!RESEND_API_KEY) {
+    resendClient = false;
+    return;
+  }
+  resendClient = new Resend(RESEND_API_KEY);
+  console.log('[emailService] Resend client initialized');
+}
+
 /**
  * Send an email via the configured SMTP transporter.
  *
@@ -45,9 +58,9 @@ function initTransporter() {
  * @param {string} options.subject  - Email subject line
  * @param {string} options.html     - HTML body
  * @param {string} options.text     - Plain-text fallback body
- * @returns {Promise<{success: boolean, error?: string, info?: Object}>}
+ * @returns {Promise<{success: boolean, messageId?: string|null, error?: string, info?: Object}>}
  */
-async function sendEmail({ to, subject, html, text }) {
+async function sendViaSmtp({ to, subject, html, text }) {
   initTransporter();
 
   if (!isConfigured) {
@@ -70,11 +83,55 @@ async function sendEmail({ to, subject, html, text }) {
     });
 
     console.log(`[emailService] Email sent to ${to} (messageId: ${info.messageId})`);
-    return { success: true, info };
+    return { success: true, messageId: info?.messageId || null, info };
   } catch (error) {
     console.error('[emailService] Failed to send email:', error.message);
     return { success: false, error: error.message };
   }
+}
+
+async function sendViaResend({ to, subject, html, text }) {
+  initResend();
+
+  if (!resendClient) {
+    console.error('[emailService] Resend client not available');
+    return { success: false, error: 'Resend not configured' };
+  }
+
+  const fromAddress = process.env.EMAIL_FROM_ADDRESS;
+  if (!fromAddress) {
+    console.warn('[emailService] EMAIL_FROM_ADDRESS not set, using sandbox sender');
+  }
+  const resolvedFrom = fromAddress || 'onboarding@resend.dev';
+  const fromName = process.env.SMTP_FROM_NAME || 'Rfacon Dormitel';
+
+  try {
+    const result = await resendClient.emails.send({
+      from: `${fromName} <${resolvedFrom}>`,
+      to: [to],
+      subject,
+      html,
+      text
+    });
+
+    if (result.error) {
+      console.error('[emailService] Resend send failed:', result.error);
+      return { success: false, error: result.error.message || 'Resend error' };
+    }
+
+    console.log('[emailService] Email sent via Resend, id:', result.data?.id);
+    return { success: true, messageId: result.data?.id || null };
+  } catch (err) {
+    console.error('[emailService] Resend exception:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+async function sendEmail({ to, subject, html, text }) {
+  if (process.env.RESEND_API_KEY) {
+    return sendViaResend({ to, subject, html, text });
+  }
+  return sendViaSmtp({ to, subject, html, text });
 }
 
 /**
