@@ -10,9 +10,11 @@ const roomSchema = new mongoose.Schema({
     type: Number, 
     required: true 
   },
+  // DEPRECATED: do not read/write. Use live count from User.countDocuments
+  // in API responses. Kept here for backward compat with existing documents.
   currentOccupants: {
     type: Number,
-    default: 0 // Starts at 0 when the room is first created
+    default: 0
   },
   status: {
     type: String,

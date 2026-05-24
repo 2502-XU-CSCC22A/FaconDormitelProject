@@ -13,7 +13,7 @@ const createRoom = async (req, res) => {
     const newRoom = new Room({
       roomNumber: roomNumber,
       capacity: capacity
-      // currentOccupants automatically starts at 0 because of our Mongoose schema!
+      // Note: currentOccupants field is deprecated. Occupancy is computed live in API responses via User.countDocuments.
     });
 
     // 3. Save it to the database

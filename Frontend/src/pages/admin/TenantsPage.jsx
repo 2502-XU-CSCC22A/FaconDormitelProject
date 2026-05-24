@@ -248,10 +248,10 @@ function TenantsPage() {
               >
                 <option value="">No Room (Unassigned)</option>
                 {rooms.map((r) => {
-                  const full = (r.currentOccupants ?? 0) >= r.capacity;
+                  const full = (r.occupantCount ?? 0) >= r.capacity;
                   return (
                     <option key={r._id} value={r._id} disabled={full}>
-                      Room {r.roomNumber} ({r.currentOccupants ?? 0}/{r.capacity}){full ? ' — Full' : ''}
+                      Room {r.roomNumber} ({r.occupantCount ?? 0}/{r.capacity}){full ? ' — Full' : ''}
                     </option>
                   );
                 })}
