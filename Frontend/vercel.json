@@ -1,9 +1,5 @@
-$json = @'
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
-'@
-
-[System.IO.File]::WriteAllText("$PWD\Frontend\vercel.json", $json)
