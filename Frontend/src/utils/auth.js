@@ -43,6 +43,14 @@ export const setAuth = (token, user) => {
 };
 
 /**
+ * Updates only the user portion in localStorage (keeps token unchanged).
+ * Used by TenantLayout to refresh stale user data on navigation.
+ */
+export const setUser = (user) => {
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+};
+
+/**
  * Clears all auth data and (optionally) tells the backend.
  * The backend logout call is fire-and-forget — even if it fails,
  * we still clear local state.

@@ -1,7 +1,8 @@
 // src/components/tenant/TenantLayout.jsx
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
-import { logout, getUser } from '../../utils/auth';
+import { useEffect, useState } from 'react';
+import { logout, getUser, setUser, authHeader } from '../../utils/auth';
+const API = import.meta.env.VITE_API_BASE;
 import logoImage from '../../assets/logo.png';
 import homeIcon from '../../assets/Home.png';
 import tenantsIcon from '../../assets/tenants.png';
@@ -60,14 +61,36 @@ function NavIcon({ icon }) {
 
 function TenantLayout() {
   const navigate = useNavigate();
-  const user = getUser();
+  const [user, setLocalUser] = useState(() => getUser());
 
   // Bounce owners back to their panel
   useEffect(() => {
     if (user?.role === 'owner') {
       navigate('/admin/tenants', { replace: true });
     }
-  }, [user, navigate]);
+  }, [user?.role, navigate]);
+
+  // Refresh user data on layout mount — catches room assignment changes, name updates, etc.
+  // Without this, tenant would need to logout/login to see changes made by the owner.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/api/auth/me`, {
+          headers: { ...authHeader() }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data.user) {
+          setUser(data.user);          // update localStorage
+          setLocalUser(data.user);     // re-render with fresh data
+        }
+      } catch {
+        // Silent fail — keep stale data, app still works
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);  // empty deps — runs ONCE on mount
 
   const initials = user?.name
     ? user.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
