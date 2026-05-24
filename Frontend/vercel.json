@@ -1,0 +1,7 @@
+@"
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+"@ | Out-File -FilePath Frontend/vercel.json -Encoding UTF8 -NoNewline
