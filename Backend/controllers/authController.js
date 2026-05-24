@@ -175,7 +175,10 @@ if (user.mustSetPassword || !user.password) {
 const getMe = async (req, res) => {
   try {
     // req.user comes from the JWT payload (set by authMiddleware)
-    const user = await User.findById(req.user.userId).select('-password');
+    const user = await User.findById(req.user.userId)
+      .select('-password')
+      .populate('roomId', '_id roomNumber name capacity');
+
     if (!user) {
       // Token was valid but the account was deleted
       return res.status(404).json({ message: 'User not found' });
@@ -185,8 +188,11 @@ const getMe = async (req, res) => {
       user: {
         _id: user._id,
         email: user.email,
+        name: user.name,
         role: user.role,
-        createdAt: user.createdAt
+        createdAt: user.createdAt,
+        roomId: user.roomId,        // populated room object or null
+        status: user.status
       }
     });
   } catch (error) {
@@ -283,10 +289,6 @@ const createTenant = async (req, res) => {
         ...(roomId ? { roomId } : {})
       });
       await user.save();
-    }
-
-    if (roomId) {
-      await Room.findByIdAndUpdate(roomId, { $inc: { currentOccupants: 1 } });
     }
 
     // Build the invite link the owner will share with the tenant.
@@ -470,10 +472,6 @@ const deleteTenant = async (req, res) => {
       });
     }
 
-    if (tenant.roomId) {
-      await Room.findByIdAndUpdate(tenant.roomId, { $inc: { currentOccupants: -1 } });
-    }
-
     await User.findByIdAndDelete(id);
 
     return res.status(200).json({
@@ -590,9 +588,6 @@ const reassignTenantRoom = async (req, res) => {
     if (!roomId) {
       tenant.roomId = null;
       await tenant.save();
-      if (oldRoomId) {
-        await Room.findByIdAndUpdate(oldRoomId, { $inc: { currentOccupants: -1 } });
-      }
       return res.status(200).json({ message: 'Tenant unassigned from room', tenant: { _id: tenant._id, roomId: null } });
     }
 
@@ -623,12 +618,8 @@ const reassignTenantRoom = async (req, res) => {
     }
 
     // Swap rooms
-    if (oldRoomId) {
-      await Room.findByIdAndUpdate(oldRoomId, { $inc: { currentOccupants: -1 } });
-    }
     tenant.roomId = room._id;
     await tenant.save();
-    await Room.findByIdAndUpdate(room._id, { $inc: { currentOccupants: 1 } });
 
     return res.status(200).json({
       message: 'Tenant room updated',

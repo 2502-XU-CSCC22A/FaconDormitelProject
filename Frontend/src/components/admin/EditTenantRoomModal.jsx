@@ -86,11 +86,11 @@ function EditTenantRoomModal({ tenant, rooms, onClose, onSaved }) {
           >
             <option value="">(Unassigned)</option>
             {rooms.map((r) => {
-              const full = (r.currentOccupants ?? 0) >= r.capacity;
+              const full = (r.occupantCount ?? 0) >= r.capacity;
               const isCurrent = r._id === currentRoomId;
               return (
                 <option key={r._id} value={r._id} disabled={full && !isCurrent}>
-                  Room {r.roomNumber} ({r.currentOccupants ?? 0}/{r.capacity}){full && !isCurrent ? ' — Full' : ''}
+                  Room {r.roomNumber} ({r.occupantCount ?? 0}/{r.capacity}){full && !isCurrent ? ' — Full' : ''}
                 </option>
               );
             })}

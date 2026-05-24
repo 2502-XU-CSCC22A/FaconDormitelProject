@@ -151,9 +151,31 @@ function InviteLinkModal({ tenant, inviteLink, inviteExpiresAt, emailSent, email
   Invite link (also sent to their email):
 </p>
 
-        <button type="button" onClick={onClose} style={closeButtonStyle}>
-          Done
-        </button>
+<div style={linkBoxStyle}>
+  <input
+    id="invite-link-input"
+    type="text"
+    value={inviteLink}
+    readOnly
+    style={linkInputStyle}
+    onClick={(e) => e.target.select()}
+  />
+  <button
+    type="button"
+    onClick={handleCopy}
+    style={copied ? copiedButtonStyle : copyButtonStyle}
+  >
+    {copied ? '✓ Copied' : 'Copy'}
+  </button>
+</div>
+
+<p style={expiryStyle}>
+  Expires: {formatExpiry(inviteExpiresAt)}
+</p>
+
+<button type="button" onClick={onClose} style={closeButtonStyle}>
+  Done
+</button>
       </div>
     </div>
   );

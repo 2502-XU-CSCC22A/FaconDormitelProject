@@ -1067,7 +1067,6 @@ describe('reassignTenantRoom', () => {
       invitedBy: ownerDoc._id,
       roomId: roomA._id
     });
-    await Room.findByIdAndUpdate(roomA._id, { currentOccupants: 1 });
   });
 
   afterEach(async () => {
@@ -1086,10 +1085,10 @@ describe('reassignTenantRoom', () => {
     const updated = await User.findById(tenant._id);
     expect(updated.roomId.toString()).toBe(roomB._id.toString());
 
-    const updatedA = await Room.findById(roomA._id);
-    const updatedB = await Room.findById(roomB._id);
-    expect(updatedA.currentOccupants).toBe(0);
-    expect(updatedB.currentOccupants).toBe(1);
+    const countA = await User.countDocuments({ roomId: roomA._id, role: 'client' });
+    const countB = await User.countDocuments({ roomId: roomB._id, role: 'client' });
+    expect(countA).toBe(0);
+    expect(countB).toBe(1);
   });
 
   it('should reject 409 when target room is at capacity', async () => {
@@ -1098,7 +1097,6 @@ describe('reassignTenantRoom', () => {
       email: 'other@gmail.com', name: 'Other', role: 'client', mustSetPassword: true,
       inviteToken: 'tok99', inviteTokenExpiry: new Date(Date.now() + 1e6), roomId: roomB._id
     });
-    await Room.findByIdAndUpdate(roomB._id, { currentOccupants: 1 });
 
     const res = await request(app)
       .patch(`/api/admin/tenants/${tenant._id}/room`)
@@ -1121,8 +1119,8 @@ describe('reassignTenantRoom', () => {
     const updated = await User.findById(tenant._id);
     expect(updated.roomId).toBeNull();
 
-    const updatedA = await Room.findById(roomA._id);
-    expect(updatedA.currentOccupants).toBe(0);
+    const countA = await User.countDocuments({ roomId: roomA._id, role: 'client' });
+    expect(countA).toBe(0);
   });
 
   it('should reject 404 when room does not exist', async () => {
@@ -1162,7 +1160,7 @@ describe('reassignTenantRoom', () => {
     expect(res.body.message).toMatch(/no change/i);
 
     // Occupant count must not have changed
-    const updatedA = await Room.findById(roomA._id);
-    expect(updatedA.currentOccupants).toBe(1);
+    const countA = await User.countDocuments({ roomId: roomA._id, role: 'client' });
+    expect(countA).toBe(1);
   });
 });

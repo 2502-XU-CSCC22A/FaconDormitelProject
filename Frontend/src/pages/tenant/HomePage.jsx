@@ -129,8 +129,8 @@ function HomePage() {
               <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
                 <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Room status</p>
                 <div className="mt-2">
-                  <span className={`inline-flex px-2.5 py-1 rounded-full text-sm font-semibold ${latestBill ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
-                    {latestBill ? 'Active' : 'No room'}
+                  <span className={`inline-flex px-2.5 py-1 rounded-full text-sm font-semibold ${user?.roomId ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                    {user?.roomId ? 'Active' : 'No room'}
                   </span>
                 </div>
               </div>

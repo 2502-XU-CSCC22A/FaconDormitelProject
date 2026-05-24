@@ -25,7 +25,7 @@ const app = express();
 app.use(helmet());
 
 // CORS — only allow the configured frontend origin
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(s => s.trim());
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173,https://rfacondormitel.vercel.app').split(',').map(s => s.trim());
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
@@ -33,6 +33,7 @@ app.use(cors({
     if (allowedOrigins.indexOf(origin) !== -1) {
       return callback(null, true);
     }
+    console.warn('[CORS] Rejected origin:', JSON.stringify(origin), 'allowed:', JSON.stringify(allowedOrigins));
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true

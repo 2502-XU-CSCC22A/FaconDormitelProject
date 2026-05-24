@@ -55,7 +55,7 @@ function MyRoomPage() {
         <div>
           <h1 className="text-lg font-bold text-gray-900">My room</h1>
           <p className="text-sm text-gray-500">
-            {latestBill ? `${latestBill.roomNameSnapshot} details & roommates` : 'Room details & roommates'}
+            {user?.roomId ? `${user.roomId.roomNumber} details & roommates` : 'Room details & roommates'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -69,10 +69,15 @@ function MyRoomPage() {
           <div className="flex items-center justify-center py-20 text-gray-500 text-sm">Loading room info…</div>
         ) : error ? (
           <div className="flex items-center justify-center py-20 text-red-600 text-sm">{error}</div>
-        ) : !latestBill ? (
+        ) : !user?.roomId ? (
           <div className="bg-white rounded-xl border border-gray-200 px-6 py-14 text-center">
             <p className="text-lg font-semibold text-gray-700">No room assigned</p>
             <p className="text-sm text-gray-500 max-w-sm mx-auto mt-1">You haven't been assigned to a room yet.</p>
+          </div>
+        ) : !latestBill ? (
+          <div className="bg-white rounded-xl border border-gray-200 px-6 py-14 text-center">
+            <p className="text-lg font-semibold text-gray-700">{user.roomId.roomNumber}</p>
+            <p className="text-sm text-gray-500 max-w-sm mx-auto mt-1">You're assigned to this room. Your landlord hasn't created any bills yet.</p>
           </div>
         ) : (
           <>

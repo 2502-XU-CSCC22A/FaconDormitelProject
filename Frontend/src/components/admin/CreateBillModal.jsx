@@ -87,7 +87,7 @@ function CreateBillModal({ onClose, onSuccess }) {
   const elecAmount = kWh * rate;
   const total = flat + elecAmount;
   const selectedRoom = rooms.find(r => r._id === roomId);
-  const occupants = selectedRoom?.currentOccupants ?? null;
+  const occupants = selectedRoom?.occupantCount ?? null;
   const perTenant = occupants > 0 ? total / occupants : null;
 
   const readingInvalid = currReading !== '' && Number(currReading) < prevR;
@@ -173,7 +173,7 @@ function CreateBillModal({ onClose, onSuccess }) {
               {rooms.map((r) => (
                 <option key={r._id} value={r._id}>
                   {r.name || r.roomNumber}
-                  {r.currentOccupants != null ? ` — ${r.currentOccupants} occupant${r.currentOccupants !== 1 ? 's' : ''}` : ''}
+                  {r.occupantCount != null ? ` — ${r.occupantCount} occupant${r.occupantCount !== 1 ? 's' : ''}` : ''}
                 </option>
               ))}
             </select>

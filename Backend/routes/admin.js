@@ -24,8 +24,13 @@ router.patch('/tenants/:id/room', reassignTenantRoom);
 router.get('/rooms', async (req, res) => {
   try {
     const rooms = await Room.find({})
-      .select('_id roomNumber name capacity currentOccupants status')
+      .select('_id roomNumber name capacity status')
       .lean();
+
+    for (const room of rooms) {
+      room.occupantCount = await User.countDocuments({ roomId: room._id, role: 'client' });
+    }
+
     return res.status(200).json({ rooms });
   } catch (err) {
     console.error('[GET /api/admin/rooms] error:', err);
